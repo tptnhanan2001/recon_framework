@@ -1,0 +1,9 @@
+# Recon Tool Requirements
+# Note: Most tools need to be installed separately via their respective methods
+
+# Python packages
+streamlit>=1.31.0
+colorama>=0.4.0
+requests>=2.31.0
+pandas>=1.5.0
+

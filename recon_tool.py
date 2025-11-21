@@ -41,7 +41,6 @@ except ImportError:
 
 # Import all tools
 from tools.subfinder import Subfinder
-from tools.dnsenum import Dnsenum
 from tools.amass import Amass
 from tools.sublist3r import Sublist3r
 from tools.httpx import Httpx
@@ -147,12 +146,6 @@ class ReconOrchestrator:
         
         # Initialize all tools
         self.subfinder = Subfinder(self.output_dir, self.base_name, self.logger)
-        self.dnsenum = Dnsenum(
-            self.output_dir,
-            self.base_name,
-            self.logger,
-            config=self.tool_config.get("dnsenum")
-        )
         self.amass = Amass(
             self.output_dir,
             self.base_name,
@@ -390,10 +383,7 @@ class ReconOrchestrator:
         self.logger.info(f"Output Directory: {Fore.CYAN if COLORAMA_AVAILABLE else ''}{self.output_dir}{reset_color}")
         self.logger.info(f"{header_color}{'=' * 70}{reset_color}")
         workflow_color = Fore.MAGENTA if COLORAMA_AVAILABLE else ""
-        if self.mode == "0":
-            self.logger.info(f"{workflow_color}WORKFLOW: Step 1 (DNSenum Test Only){reset_color}")
-        else:
-            self.logger.info(f"{workflow_color}WORKFLOW: Step 1 -> Step 2 -> Step 3 -> Step 4 -> Step 5{reset_color}")
+        self.logger.info(f"{workflow_color}WORKFLOW: Step 1 -> Step 2 -> Step 3 -> Step 4 -> Step 5{reset_color}")
         self.logger.info(f"{header_color}{'=' * 70}{reset_color}")
         
         start_time = time.time()
@@ -408,38 +398,13 @@ class ReconOrchestrator:
         
         # Check if at least one subdomain discovery tool is enabled
         subfinder_enabled = self.is_tool_enabled("subfinder")
-        dnsenum_enabled = self.is_tool_enabled("dnsenum")
         amass_enabled = self.is_tool_enabled("amass")
         sublist3r_enabled = self.is_tool_enabled("sublist3r")
         
-        if not subfinder_enabled and not dnsenum_enabled and not amass_enabled and not sublist3r_enabled:
-            self.logger.error("At least one subdomain discovery tool (Subfinder, DNSenum, Amass, or Sublist3r) must be enabled.")
+        if not subfinder_enabled and not amass_enabled and not sublist3r_enabled:
+            self.logger.error("At least one subdomain discovery tool (Subfinder, Amass, or Sublist3r) must be enabled.")
             self.logger.error("Cannot continue without subdomains.")
             return
-        
-        # For mode 0 (test mode), only run dnsenum and exit
-        if self.mode == "0":
-            if not dnsenum_enabled:
-                self.logger.error("[MODE 0] DNSenum must be enabled for test mode.")
-                return
-            
-            self.logger.info("[MODE 0] Test Mode - Running DNSenum only")
-            dnsenum_file = self.dnsenum.run(domain=self.domain, domain_list=self.domain_list)
-            
-            if dnsenum_file and os.path.exists(dnsenum_file):
-                # Count subdomains found
-                with open(dnsenum_file, 'r', encoding='utf-8', errors='ignore') as f:
-                    subdomain_count = sum(1 for line in f if line.strip())
-                
-                self.logger.info("=" * 70)
-                self.logger.info(f"[MODE 0] Test completed successfully!")
-                self.logger.info(f"[MODE 0] Found {subdomain_count} subdomains via DNSenum bruteforce")
-                self.logger.info(f"[MODE 0] Results saved to: {dnsenum_file}")
-                self.logger.info("=" * 70)
-                return
-            else:
-                self.logger.error("[MODE 0] DNSenum test failed or no subdomains found")
-                return
         
         step1_start = time.time()
         subdomain_files = []
@@ -451,18 +416,6 @@ class ReconOrchestrator:
                 subdomain_files.append(subfinder_file)
         else:
             self.logger.info("[Subfinder] Tool is disabled in configuration. Skipping.")
-        
-        if self.is_stopped():
-            self.logger.warning("[STOP] Scan stopped during subdomain discovery")
-            return
-        
-        # Run DNSenum if enabled (faster alternative to Amass, used in mode 1)
-        if dnsenum_enabled:
-            dnsenum_file = self.dnsenum.run(domain=self.domain, domain_list=self.domain_list)
-            if dnsenum_file and os.path.exists(dnsenum_file):
-                subdomain_files.append(dnsenum_file)
-        else:
-            self.logger.info("[DNSenum] Tool is disabled in configuration. Skipping.")
         
         if self.is_stopped():
             self.logger.warning("[STOP] Scan stopped during subdomain discovery")
@@ -855,17 +808,12 @@ Examples:
   python recon_tool.py -d example.com
   python recon_tool.py -dL domains.txt
   python recon_tool.py -d example.com -o custom_output
-  python recon_tool.py -d example.com --mode 0  # Test DNSenum only
   python recon_tool.py -d example.com --mode 1
   python recon_tool.py -d example.com --mode 2
 
 Modes:
-  0  - Test Mode: DNSenum subdomain enumeration only
-      (dnsenum only - for testing DNSenum bruteforce)
-  
   1  - Fast Scan: Subdomain Discovery + Alive Check + Nuclei
-      (subfinder, dnsenum, sublist3r, httpx, nuclei)
-      Uses DNSenum for faster enumeration
+      (subfinder, sublist3r, httpx, nuclei)
   
   2  - Standard Scan: Subdomain Discovery + Alive Check + Nuclei
       (subfinder, amass, sublist3r, httpx, nuclei)
@@ -897,9 +845,9 @@ Note: Content discovery tools now run sequentially to simplify execution.
     
     parser.add_argument(
         "--mode",
-        choices=["0", "1", "2", "3"],
+        choices=["1", "2", "3"],
         default="3",
-        help="Scan mode: 0=Test (DNSenum only), 1=Fast (DNSenum), 2=Standard (Amass), 3=Full flow (default: 3)"
+        help="Scan mode: 1=Fast, 2=Standard (Amass), 3=Full flow (default: 3)"
     )
     
     args = parser.parse_args()

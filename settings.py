@@ -7,28 +7,10 @@ from pathlib import Path
 
 # Mode presets for different scan intensities
 MODE_PRESETS = {
-    "0": {
-        "description": "Test Mode - DNSenum subdomain enumeration only",
-        "tools_enabled": {
-            "subfinder": False,
-            "dnsenum": True,  # Only DNSenum for testing
-            "amass": False,
-            "sublist3r": False,
-            "httpx": False,
-            "dirsearch": False,
-            "katana": False,
-            "urlfinder": False,
-            "waybackurls": False,
-            "waymore": False,
-            "cloudenum": False,
-            "nuclei": False,
-        },
-    },
     "1": {
-        "description": "Fast Scan - Subdomain Discovery + Alive Check + Nuclei (uses DNSenum)",
+        "description": "Fast Scan - Subdomain Discovery + Alive Check + Nuclei",
         "tools_enabled": {
             "subfinder": True,
-            "dnsenum": True,  # Use DNSenum for fast enumeration
             "amass": False,   # Disabled in mode 1
             "sublist3r": True,
             "httpx": True,
@@ -45,7 +27,6 @@ MODE_PRESETS = {
         "description": "Standard Scan - Subdomain Discovery + Alive Check + Nuclei (uses Amass)",
         "tools_enabled": {
             "subfinder": True,
-            "dnsenum": False,  # Disabled in mode 2
             "amass": True,     # Use Amass for comprehensive enumeration
             "sublist3r": True,
             "httpx": True,
@@ -62,7 +43,6 @@ MODE_PRESETS = {
         "description": "Full Flow - All tools including content discovery",
         "tools_enabled": {
             "subfinder": True,
-            "dnsenum": False,  # Use Amass in full mode
             "amass": True,
             "sublist3r": True,
             "httpx": True,
@@ -84,14 +64,10 @@ DEFAULT_WORDLIST_CANDIDATES = [
 DEFAULT_SUBDOMAINS_CANDIDATES = [
     Path("/mnt/d/BugbountyDev/recon_framework/db/wordlists/DNS/subdomains.txt")
 ]
-TEST_MODE_WORDLIST = [
-    Path("/mnt/d/BugbountyDev/recon_framework/db/wordlists/DNS/test.txt")
-]
 DEFAULT_TOOL_CONFIG = {
     # Tool enable/disable flags (True = enabled, False = disabled)
     "tools_enabled": {
         "subfinder": True,
-        "dnsenum": False,  # Default disabled, enabled in mode 1
         "amass": True,
         "sublist3r": True,
         "httpx": True,
@@ -148,12 +124,6 @@ DEFAULT_TOOL_CONFIG = {
         "verbose": False,  # Enable verbose output
         "threads": None,  # Number of threads for bruteforce (default: auto)
         "engines": None,  # Comma-separated list of search engines (default: all)
-    },
-    "dnsenum": {
-        "enabled": False,  # Can be overridden by tools_enabled["dnsenum"]
-        "threads": None,  # Number of threads (if supported by dnsenum)
-        "wordlist": None,  # Path to wordlist file (auto-detected from DEFAULT_SUBDOMAINS_CANDIDATES if None)
-        "wordlist_candidates": TEST_MODE_WORDLIST,
     },
 }
 

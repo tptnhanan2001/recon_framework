@@ -9,7 +9,6 @@ import os
 
 REQUIRED_TOOLS = {
     "subfinder": "Subdomain discovery",
-    "dnsenum": "DNS enumeration (fast subdomain discovery, used in mode 1)",
     "httpx": "HTTP probe and alive checker",
     "ffuf": "Web fuzzer",
     "dirsearch": "Directory enumeration",

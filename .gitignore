@@ -54,3 +54,9 @@ Thumbs.db
 *.bak
 *.cache
 
+# Large wordlists (keep only small samples)
+db/wordlists/DNS/*
+!db/wordlists/DNS/test.txt
+db/wordlists/WebContent/*
+!db/wordlists/WebContent/wordlists_001.txt
+

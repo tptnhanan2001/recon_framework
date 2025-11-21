@@ -60,6 +60,17 @@ class Amass(BaseTool):
             cmd.append("-active")
 
         wordlist = self.config.get("wordlist")
+        
+        # Auto-detect wordlist from candidates if not specified
+        if not wordlist:
+            wordlist_candidates = self.config.get("wordlist_candidates", [])
+            if wordlist_candidates:
+                for candidate in wordlist_candidates:
+                    candidate_path = Path(candidate).expanduser() if isinstance(candidate, (str, Path)) else candidate
+                    if candidate_path.exists():
+                        wordlist = str(candidate_path)
+                        self.logger.info(f"[Amass] Auto-detected wordlist from candidates: {wordlist}")
+                        break
 
         if self.config.get("bruteforce", False):
             cmd.append("-brute")
@@ -70,6 +81,8 @@ class Amass(BaseTool):
                     self.logger.info(f"[Amass] Using bruteforce wordlist: {wordlist_path}")
                 else:
                     self.logger.warning(f"[Amass] Bruteforce wordlist not found: {wordlist_path}")
+            else:
+                self.logger.info("[Amass] Bruteforce enabled but no wordlist found, running without wordlist")
         
         # Add output options
         cmd.extend(["-o", str(output_file)])

@@ -1,0 +1,14 @@
+www
+m
+mail
+kubernetes
+kubernetes.default
+kubernetes.default.svc.cluster
+api
+cdn
+autodiscover
+secure
+webmail
+fritz
+www.fritz
+cpanel

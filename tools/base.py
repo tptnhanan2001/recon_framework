@@ -18,7 +18,7 @@ class BaseTool:
         self.tool_name = self.__class__.__name__.lower()
         self.config = config or {}
     
-    def run_command(self, command, output_file=None, append=False, shell=False):
+    def run_command(self, command, output_file=None, append=False, shell=False, merge_stderr=False):
         """Execute shell command and handle output"""
         cmd_str = ' '.join(command) if isinstance(command, list) else str(command)
         self.logger.info(f"[{self.tool_name}] Running: {cmd_str}")
@@ -31,19 +31,21 @@ class BaseTool:
                 
                 with open(output_path, mode, encoding='utf-8', errors='ignore') as f:
                     if shell:
+                        stderr_target = subprocess.STDOUT if merge_stderr else subprocess.PIPE
                         result = subprocess.run(
                             command,
                             stdout=f,
-                            stderr=subprocess.PIPE,
+                            stderr=stderr_target,
                             text=True,
                             shell=True,
                             check=False
                         )
                     else:
+                        stderr_target = subprocess.STDOUT if merge_stderr else subprocess.PIPE
                         result = subprocess.run(
                             command,
                             stdout=f,
-                            stderr=subprocess.PIPE,
+                            stderr=stderr_target,
                             text=True,
                             check=False
                         )

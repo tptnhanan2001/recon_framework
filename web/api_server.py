@@ -82,6 +82,26 @@ class TargetInfo:
 # Store running scans info
 running_scans: Dict[str, Dict] = {}
 
+
+def _sanitize_scan_info(info: Dict) -> Dict:
+    """Return JSON-friendly version of scan info."""
+    sanitized = {}
+    for key, value in info.items():
+        if key == "process":
+            continue
+        if isinstance(value, Path):
+            sanitized[key] = str(value)
+        elif isinstance(value, dict):
+            sanitized[key] = _sanitize_scan_info(value)
+        elif isinstance(value, list):
+            sanitized[key] = [
+                str(item) if isinstance(item, Path) else item for item in value
+            ]
+        else:
+            sanitized[key] = value
+    return sanitized
+
+
 # List of recon tool executables that might be running as child processes
 RECON_TOOLS = ["nuclei.exe", "subfinder.exe", "amass.exe", "httpx.exe", "httpx-toolkit.exe", 
                 "ffuf.exe", "dirsearch.exe", "katana.exe", "urlfinder.exe", "waybackurls.exe",
@@ -644,7 +664,7 @@ def get_scan_status(scan_id: str):
     if scan_id not in running_scans:
         return jsonify({"error": "Scan not found"}), 404
     
-    scan_info = running_scans[scan_id].copy()
+    scan_info = _sanitize_scan_info(running_scans[scan_id])
     return jsonify(scan_info)
 
 

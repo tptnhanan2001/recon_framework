@@ -706,7 +706,7 @@ function renderTargetsList() {
         <div class="target-item ${target.path === state.activeTarget ? 'selected' : ''}" 
              data-target="${target.path}" onclick="selectTarget('${target.path}')">
             <h3>${target.label}</h3>
-            <p>${target.path}</p>
+            <p>${escapeHtml(target.display_path || target.path)}</p>
             <div class="target-actions">
                 <button class="btn btn-primary" onclick="event.stopPropagation(); downloadTarget('${target.path}')">
                     Download ZIP
@@ -794,14 +794,14 @@ async function renderTargetsManagement() {
             const fileCount = summary.files || 0;
             const subdomainCount = summary.subdomains || 0;
             const status = fileCount > 0 ? '✅ Complete' : '⏳ Processing';
-            // Normalize both paths for comparison
-            const normalizedTargetPath = normalizePath(target.path);
-            const isRunningInScans = targetToScanId[normalizedTargetPath] !== undefined;
-            const scanId = targetToScanId[normalizedTargetPath];
+            const targetDisplayPath = target.display_path || target.path;
+            const normalizedDisplayPath = normalizePath(targetDisplayPath);
+            const isRunningInScans = targetToScanId[normalizedDisplayPath] !== undefined;
+            const scanId = targetToScanId[normalizedDisplayPath];
             // Show Stop Scan button if: 1) in running_scans, OR 2) status is Processing (fileCount = 0)
             const isProcessing = fileCount === 0;
             const shouldShowStopButton = isRunningInScans || isProcessing;
-            console.log(`Target: ${target.path} -> Normalized: ${normalizedTargetPath}, IsRunning: ${isRunningInScans}, IsProcessing: ${isProcessing}, ScanId: ${scanId}`);
+            console.log(`Target: ${target.path} -> Normalized: ${normalizedDisplayPath}, IsRunning: ${isRunningInScans}, IsProcessing: ${isProcessing}, ScanId: ${scanId}`);
             
             // Build action buttons
             let actionButtons = `
@@ -831,7 +831,7 @@ async function renderTargetsManagement() {
             tableHTML += `
                 <tr>
                     <td><strong>${escapeHtml(target.label)}</strong></td>
-                    <td><code class="path-code">${escapeHtml(target.path)}</code></td>
+                    <td><code class="path-code">${escapeHtml(targetDisplayPath)}</code></td>
                     <td>
                         <span class="status-badge ${fileCount > 0 ? 'status-complete' : 'status-processing'}">${status}</span>
                         <div class="status-details">
@@ -848,9 +848,10 @@ async function renderTargetsManagement() {
             `;
         } catch (error) {
             // If summary fails, still show the target
-            const normalizedTargetPath = normalizePath(target.path);
-            const isRunningInScans = targetToScanId[normalizedTargetPath] !== undefined;
-            const scanId = targetToScanId[normalizedTargetPath];
+            const targetDisplayPath = target.display_path || target.path;
+            const normalizedDisplayPath = normalizePath(targetDisplayPath);
+            const isRunningInScans = targetToScanId[normalizedDisplayPath] !== undefined;
+            const scanId = targetToScanId[normalizedDisplayPath];
             // If we can't get summary, assume it might be processing if it's in running_scans
             const shouldShowStopButton = isRunningInScans;
             
@@ -880,7 +881,7 @@ async function renderTargetsManagement() {
             tableHTML += `
                 <tr>
                     <td><strong>${escapeHtml(target.label)}</strong></td>
-                    <td><code class="path-code">${escapeHtml(target.path)}</code></td>
+                    <td><code class="path-code">${escapeHtml(targetDisplayPath)}</code></td>
                     <td><span class="status-badge status-unknown">❓ Unknown</span></td>
                     <td>
                         <div class="action-buttons">

@@ -75,7 +75,8 @@ def serve_js():
 @dataclass
 class TargetInfo:
     label: str
-    path: str
+    path: str  # relative path (directory name under OUTPUT_ROOT)
+    display_path: str  # absolute path for UI display
 
 
 # Store running scans info
@@ -387,10 +388,9 @@ def load_targets() -> List[TargetInfo]:
     for path in sorted(OUTPUT_ROOT.glob("recon_*")):
         if path.is_dir():
             label = path.name.replace("recon_", "")
-            # Normalize path: convert backslashes to forward slashes for URL compatibility
-            # This ensures paths work correctly in URLs on Windows
-            normalized_path = str(path.resolve()).replace('\\', '/')
-            targets.append(TargetInfo(label=label, path=normalized_path))
+            display_path = str(path.resolve()).replace('\\', '/')
+            relative_path = path.name  # directory name under OUTPUT_ROOT
+            targets.append(TargetInfo(label=label, path=relative_path, display_path=display_path))
     return targets
 
 

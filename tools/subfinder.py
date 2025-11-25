@@ -20,7 +20,7 @@ class Subfinder(BaseTool):
         if domain:
             cmd = ["subfinder", "-d", domain, "-all", "-silent"]
         elif domain_list:
-            cmd = ["subfinder", "-dL", domain_list, "-all", "-silent"]
+            cmd = ["subfinder", "-dL", domain_list, "-all", "-silent","-recursive"]
         else:
             self.logger.error("[Subfinder] No domain or domain list provided")
             return None

@@ -14,7 +14,9 @@ from pathlib import Path
 from datetime import datetime
 import logging
 from copy import deepcopy
-from threading import Event
+from threading import Event, Thread
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import partial
 
 # Import colorama for colored output
 try:
@@ -51,16 +53,15 @@ from tools.waybackurls import Waybackurls
 from tools.waymore import Waymore
 from tools.cloudenum import Cloudenum
 from tools.nuclei import Nuclei
-from settings import DEFAULT_TOOL_CONFIG, MODE_PRESETS
+from settings import DEFAULT_TOOL_CONFIG
 
 
 class ReconOrchestrator:
     """Main orchestrator that runs tools sequentially"""
     
-    def __init__(self, domain=None, domain_list=None, output_dir=None, tool_config=None, mode="3"):
+    def __init__(self, domain=None, domain_list=None, output_dir=None, tool_config=None):
         self.domain = domain
         self.domain_list = domain_list
-        self.mode = str(mode) if mode else "3"
         
         if domain:
             self.base_name = domain.replace(".", "_")
@@ -78,28 +79,6 @@ class ReconOrchestrator:
         
         # Start with default config
         base_config = deepcopy(DEFAULT_TOOL_CONFIG)
-        
-        # Apply mode preset if valid mode is specified
-        if self.mode in MODE_PRESETS:
-            mode_config = MODE_PRESETS[self.mode]
-            
-            # Merge mode config into base config
-            if "tools_enabled" in mode_config:
-                if "tools_enabled" not in base_config:
-                    base_config["tools_enabled"] = {}
-                base_config["tools_enabled"].update(mode_config["tools_enabled"])
-            
-            # Merge tool-specific configs from mode
-            for tool_name, tool_config_value in mode_config.items():
-                if tool_name != "tools_enabled" and tool_name != "description" and isinstance(tool_config_value, dict):
-                    if tool_name not in base_config:
-                        base_config[tool_name] = {}
-                    # Deep merge tool configs
-                    for key, value in tool_config_value.items():
-                        base_config[tool_name][key] = value
-        elif self.mode not in MODE_PRESETS:
-            print(f"[WARNING] Unknown mode '{self.mode}', using mode '3' (full flow) instead")
-            self.mode = "3"
         
         # Load config from environment variable (from UI) if available
         env_config_file = os.environ.get("RECON_TOOL_CONFIG")
@@ -133,11 +112,6 @@ class ReconOrchestrator:
         
         self.log_file = self.output_dir / f"recon_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
         self.setup_logging()
-        
-        # Log mode information after logger is set up
-        if self.mode in MODE_PRESETS:
-            mode_config = MODE_PRESETS[self.mode]
-            self.logger.info(f"[MODE] Using '{self.mode}' mode: {mode_config.get('description', '')}")
         
         # Stop signal handling
         self.stop_event = Event()
@@ -227,8 +201,11 @@ class ReconOrchestrator:
             self.logger.warning("=" * 70)
             self.stop_scan()
         
+        # SIGINT is available on all platforms
         signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
+        # SIGTERM is not available on Windows
+        if hasattr(signal, 'SIGTERM'):
+            signal.signal(signal.SIGTERM, signal_handler)
     
     def stop_scan(self):
         """Stop the scan gracefully"""
@@ -325,6 +302,60 @@ class ReconOrchestrator:
             self.logger.error(traceback.format_exc())
             return tool_name, None, 0
     
+    def _run_tool_in_thread(self, tool_name, tool_func, *args, **kwargs):
+        """Helper function to run a tool in a thread - returns result dict"""
+        result_dict = {"tool_name": tool_name, "result": None, "elapsed": 0, "error": None}
+        try:
+            result_dict["tool_name"], result_dict["result"], result_dict["elapsed"] = self._run_tool(tool_name, tool_func, *args, **kwargs)
+        except Exception as e:
+            result_dict["error"] = str(e)
+            self.logger.error(f"[{tool_name}] Thread error: {e}")
+        return result_dict
+    
+    def _run_tools_parallel(self, tools_list, max_workers=None):
+        """
+        Run multiple tools in parallel using ThreadPoolExecutor
+        
+        Args:
+            tools_list: List of tuples (tool_name, bound_tool_func) where bound_tool_func is already bound with args/kwargs
+            max_workers: Maximum number of parallel threads (None = auto)
+        
+        Returns:
+            dict: Results from all tools {tool_name: {result, elapsed, error}}
+        """
+        if not tools_list:
+            return {}
+        
+        if max_workers is None:
+            max_workers = min(len(tools_list), 4)  # Default to 4 parallel workers
+        
+        results = {}
+        self.logger.info(f"[PARALLEL] Running {len(tools_list)} tools with {max_workers} workers...")
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks - tool_func is already bound with args/kwargs
+            future_to_tool = {}
+            for tool_name, bound_tool_func in tools_list:
+                future = executor.submit(self._run_tool_in_thread, tool_name, bound_tool_func)
+                future_to_tool[future] = tool_name
+            
+            # Collect results as they complete
+            completed = 0
+            for future in as_completed(future_to_tool):
+                tool_name = future_to_tool[future]
+                try:
+                    result_dict = future.result()
+                    results[tool_name] = result_dict
+                    completed += 1
+                    progress_color = Fore.BLUE if COLORAMA_AVAILABLE else ""
+                    reset_color = Style.RESET_ALL if COLORAMA_AVAILABLE else ""
+                    self.logger.info(f"{progress_color}[PARALLEL] Progress: {completed}/{len(tools_list)} tools completed{reset_color}")
+                except Exception as e:
+                    self.logger.error(f"[PARALLEL] Error getting result from {tool_name}: {e}")
+                    results[tool_name] = {"tool_name": tool_name, "result": None, "elapsed": 0, "error": str(e)}
+        
+        return results
+    
     def extract_urls_from_httpx(self, alive_file):
         """Extract URLs from httpx output file"""
         urls_file = self.output_dir / f"urls_{self.base_name}.txt"
@@ -351,14 +382,16 @@ class ReconOrchestrator:
     
     def run(self):
         """
-        Execute the complete recon workflow sequentially.
+        Execute the complete recon workflow with parallel execution.
         
         Workflow:
-        1. Subdomain Discovery (Subfinder) - Sequential
+        1. Subdomain Discovery (Subfinder, Amass, Sublist3r) - Sequential
         2. Check Alive Domains (Httpx) - Sequential (depends on Step 1)
-        3. Content Discovery (Multiple tools) - Sequential (depends on Step 2)
-        4. Cloud Enumeration (Cloudenum) - Sequential (depends on Step 1)
-        5. Vulnerability Scanning (Nuclei) - Sequential (depends on Step 2)
+           - MUST have subdomain_alive_file before proceeding
+        3. Parallel Execution:
+           - Group 1: Nuclei (on alive subdomains)
+           - Group 2: Dirsearch, Katana, URLFinder (on alive URLs) - Parallel
+        4. Wayback Tools (Waymore, Waybackurls) - Parallel, then final scan
         """
         # Clear any existing stop flag file from previous scans
         if self.stop_flag_file.exists():
@@ -375,7 +408,7 @@ class ReconOrchestrator:
         header_color = Fore.CYAN + Style.BRIGHT if COLORAMA_AVAILABLE else ""
         reset_color = Style.RESET_ALL if COLORAMA_AVAILABLE else ""
         self.logger.info(f"{header_color}{'=' * 70}{reset_color}")
-        self.logger.info(f"{header_color}Starting Recon Tool - Sequential Execution{reset_color}")
+        self.logger.info(f"{header_color}Starting Recon Tool - Parallel Execution{reset_color}")
         self.logger.info(f"{header_color}{'=' * 70}{reset_color}")
         self.logger.info(f"Domain: {Fore.CYAN if COLORAMA_AVAILABLE else ''}{self.domain}{reset_color}")
         if self.domain_list:
@@ -383,14 +416,14 @@ class ReconOrchestrator:
         self.logger.info(f"Output Directory: {Fore.CYAN if COLORAMA_AVAILABLE else ''}{self.output_dir}{reset_color}")
         self.logger.info(f"{header_color}{'=' * 70}{reset_color}")
         workflow_color = Fore.MAGENTA if COLORAMA_AVAILABLE else ""
-        self.logger.info(f"{workflow_color}WORKFLOW: Step 1 -> Step 2 -> Step 3 -> Step 4 -> Step 5{reset_color}")
+        self.logger.info(f"{workflow_color}WORKFLOW: Step 1 (Subdomain) -> Step 2 (Alive Check) -> Step 3 (Parallel: Nuclei + Content Discovery) -> Step 4 (Wayback Tools + Final Scan){reset_color}")
         self.logger.info(f"{header_color}{'=' * 70}{reset_color}")
         
         start_time = time.time()
         
         # Step 1: Collect subdomains (Sequential - no dependencies)
         self.logger.info("\n" + "=" * 70)
-        self.logger.info("[STEP 1/5] Subdomain Discovery (Sequential)")
+        self.logger.info("[STEP 1/4] Subdomain Discovery (Sequential)")
         self.logger.info("=" * 70)
         if self.is_stopped():
             self.logger.warning("[STOP] Scan stopped before starting")
@@ -524,9 +557,11 @@ class ReconOrchestrator:
         
         
         # Step 2: Check alive domains and filter (Sequential - depends on Step 1)
+        # CRITICAL: subdomain_alive_file MUST exist before proceeding
         self.logger.info("\n" + "=" * 70)
-        self.logger.info("[STEP 2/5] Checking Alive Domains (Sequential)")
+        self.logger.info("[STEP 2/4] Checking Alive Domains (Sequential)")
         self.logger.info(f"[DEPENDENCY] Requires: Step 1 (Merged subdomain output)")
+        self.logger.info("[CRITICAL] Subdomain alive file must exist before proceeding to Step 3")
         self.logger.info("=" * 70)
         if self.is_stopped():
             self.logger.warning("[STOP] Scan stopped before checking alive domains")
@@ -594,180 +629,170 @@ class ReconOrchestrator:
                 self.logger.info(f"[INFO] Extracted URLs from alive domains: {urls_file}")
                 self.logger.info(f"[INFO] All content discovery tools will use URLs from alive subdomains only")
         
-        # Step 3: Content Discovery (runs all tools sequentially)
-        # NOTE: All tools in this step use urls_file which contains ONLY URLs from alive subdomains
+        # Step 3: Parallel Execution - Nuclei + Content Discovery Tools
+        # NOTE: All tools in this step require subdomain_alive_file to exist
         if self.is_stopped():
-            self.logger.warning("[STOP] Scan stopped before content discovery")
+            self.logger.warning("[STOP] Scan stopped before parallel execution")
+            return
+        
+        # Validate that subdomain_alive_file exists (required for all subsequent steps)
+        if not subdomain_alive_file or not os.path.exists(subdomain_alive_file):
+            self.logger.error("=" * 70)
+            self.logger.error("[ERROR] Subdomain alive file is required for parallel execution!")
+            self.logger.error("[ERROR] Cannot proceed without alive subdomains from httpx.")
+            self.logger.error("=" * 70)
             return
         
         self.logger.info("\n" + "=" * 70)
-        self.logger.info("[STEP 3/5] Content Discovery (Sequential Execution)")
-        self.logger.info(f"[DEPENDENCY] Requires: Step 2 (Httpx output - alive URLs)")
-        self.logger.info("[INFO] Content discovery tools will run sequentially on alive subdomains (from httpx output)")
+        self.logger.info("[STEP 3/4] Parallel Execution (Multi-threaded)")
+        self.logger.info(f"[DEPENDENCY] Requires: Step 2 (Subdomain alive file must exist)")
+        self.logger.info("[INFO] Running tools in parallel groups:")
+        self.logger.info("[INFO]   Group 1: Nuclei (on alive subdomains)")
+        self.logger.info("[INFO]   Group 2: Dirsearch, Katana, URLFinder (on alive URLs)")
         self.logger.info("=" * 70)
         
-        # Validate prerequisites for content discovery tools
-        content_discovery_tools_enabled = any([
-            self.is_tool_enabled("dirsearch"),
-            self.is_tool_enabled("katana"),
-            self.is_tool_enabled("urlfinder"),
-            self.is_tool_enabled("waybackurls"),
-            self.is_tool_enabled("waymore"),
-        ])
-        
-        if content_discovery_tools_enabled and not urls_file:
-            self.logger.error("=" * 70)
-            self.logger.error("[ERROR] Content Discovery tools require URLs from Httpx output!")
-            self.logger.error("[ERROR] Prerequisites not met:")
-            if not subdomain_file:
-                self.logger.error("  - Subfinder output (subdomains) is missing")
-            if not alive_file:
-                self.logger.error("  - Httpx output (alive URLs) is missing")
-                if not self.is_tool_enabled("httpx"):
-                    self.logger.error("  - Httpx is disabled but required for content discovery")
-            self.logger.error("[ERROR] Skipping all content discovery tools.")
-            self.logger.error("=" * 70)
-            urls_file = None  # Ensure we skip content discovery
-        
         step3_start = time.time()
+        
+        # Prepare tools for parallel execution
+        parallel_tools = []
+        
+        # Group 1: Nuclei (runs on subdomain_alive_file)
+        if self.is_tool_enabled("nuclei"):
+            nuclei_config = self.tool_config.get("nuclei", {})
+            wordlist_file = nuclei_config.get("wordlist_file")
+            if wordlist_file and not os.path.exists(wordlist_file):
+                wordlist_file = None
+            parallel_tools.append(("Nuclei", "nuclei", self.nuclei.run, {"alive_file": alive_file, "subdomain_file": subdomain_alive_file, "wordlist_file": wordlist_file}))
+        else:
+            self.logger.info("[Nuclei] Tool is disabled in configuration. Skipping.")
+        
+        # Group 2: Content Discovery Tools (dirsearch, katana, urlfinder) - require urls_file
         if urls_file:
-            # Define all content discovery tools (will be filtered by enabled status)
-            all_content_discovery_tools = [
+            content_discovery_tools = [
                 ("Dirsearch", "dirsearch", self.dirsearch.run, urls_file),
                 ("Katana", "katana", self.katana.run, urls_file),
                 ("URLFinder", "urlfinder", self.urlfinder.run, urls_file),
-                ("Waybackurls", "waybackurls", self.waybackurls.run, urls_file),
-                ("Waymore", "waymore", self.waymore.run, urls_file),
             ]
             
-            # Filter tools based on enabled status
-            content_discovery_tools = []
-            disabled_tools = []
-            for display_name, tool_key, tool_func, *args in all_content_discovery_tools:
+            for display_name, tool_key, tool_func, *args in content_discovery_tools:
                 if self.is_tool_enabled(tool_key):
-                    content_discovery_tools.append((display_name, tool_func, *args))
+                    parallel_tools.append((display_name, tool_key, tool_func, *args))
                 else:
-                    disabled_tools.append(display_name)
                     self.logger.info(f"[{display_name}] Tool is disabled in configuration. Skipping.")
-            
-            if disabled_tools:
-                self.logger.info(f"[STEP 3] Disabled tools: {', '.join(disabled_tools)}")
-            
-            if not content_discovery_tools:
-                self.logger.warning("[STEP 3] All content discovery tools are disabled. Skipping content discovery step.")
-            else:
-                self.logger.info(f"[STEP 3] Running {len(content_discovery_tools)} tools sequentially")
-                
-                results = {}
-                total_tools = len(content_discovery_tools)
-                completed_count = 0
-                
-                for tool_name, tool_func, *args in content_discovery_tools:
-                    if self.is_stopped():
-                        self.logger.warning(f"[STEP 3] Stopping before running {tool_name}")
-                        break
-                    
-                    name, result, elapsed = self._run_tool(tool_name, tool_func, *args)
-                    results[name] = {"result": result, "elapsed": elapsed}
-                    completed_count += 1
-                    progress_color = Fore.BLUE if COLORAMA_AVAILABLE else ""
-                    reset_color = Style.RESET_ALL if COLORAMA_AVAILABLE else ""
-                    self.logger.info(f"{progress_color}[STEP 3] Progress: {completed_count}/{total_tools} tools completed{reset_color}")
-                
-                if results:
-                    successful = sum(1 for r in results.values() if r["result"])
-                    total_time = sum(r["elapsed"] for r in results.values())
-                    self.logger.info(f"\n[STEP 3] Content Discovery Summary:")
-                    self.logger.info(f"  ✓ Successful: {successful}/{len(results)}")
-                    self.logger.info(f"  ⏱ Total time: {total_time:.2f}s (sequential execution)")
-                    step3_elapsed = time.time() - step3_start
-                
-                if self.is_stopped():
-                    self.logger.warning("[STOP] Scan stopped during content discovery")
-                    return
         else:
-            self.logger.warning("Skipping content discovery - no URLs extracted")
+            self.logger.warning("[STEP 3] No URLs file available - skipping content discovery tools (dirsearch, katana, urlfinder)")
         
-        # Step 4: Cloud Enumeration (use alive subdomains if available)
-        # NOTE: Cloudenum uses active_subdomain_file which contains ONLY alive subdomains
-        if self.is_stopped():
-            self.logger.warning("[STOP] Scan stopped before cloud enumeration")
-            return
-        
-        self.logger.info("\n" + "=" * 70)
-        self.logger.info("[STEP 4/5] Cloud Enumeration (Sequential)")
-        self.logger.info(f"[DEPENDENCY] Requires: Step 1 (Subfinder output - subdomains)")
-        self.logger.info("=" * 70)
-        if not self.is_tool_enabled("cloudenum"):
-            self.logger.warning("[Cloudenum] Tool is disabled in configuration. Skipping.")
-        else:
-            # Validate prerequisites for Cloudenum
-            if not active_subdomain_file or not os.path.exists(active_subdomain_file):
-                self.logger.error("=" * 70)
-                self.logger.error("[ERROR] Cloudenum requires subdomain file!")
-                self.logger.error("[ERROR] Prerequisites not met:")
-                if not subdomain_file:
-                    self.logger.error("  - Subfinder output (subdomains) is missing")
-                    if not self.is_tool_enabled("subfinder"):
-                        self.logger.error("  - Subfinder is disabled but required for Cloudenum")
-                self.logger.error("[ERROR] Skipping Cloudenum.")
-                self.logger.error("=" * 70)
-            else:
-                self.logger.info(f"[INFO] Using alive subdomains file: {active_subdomain_file}")
-                step4_start = time.time()
-                self.cloudenum.run(active_subdomain_file)
-                step4_elapsed = time.time() - step4_start
+        # Run tools in parallel
+        if parallel_tools:
+            # Prepare tools list with proper argument binding using functools.partial
+            tools_list = []
+            for item in parallel_tools:
+                tool_name = item[0]
+                tool_func = item[2]
+                if tool_name == "Nuclei":
+                    # Nuclei uses kwargs
+                    kwargs = item[3]
+                    # Use partial to bind kwargs
+                    bound_func = partial(tool_func, **kwargs)
+                    tools_list.append((tool_name, bound_func))
+                else:
+                    # Other tools use *args
+                    args = item[3:]
+                    # Use partial to bind args
+                    bound_func = partial(tool_func, *args)
+                    tools_list.append((tool_name, bound_func))
+            
+            results = self._run_tools_parallel(tools_list, max_workers=4)
+            
+            if results:
+                successful = sum(1 for r in results.values() if r.get("result"))
+                max_time = max((r.get("elapsed", 0) for r in results.values()), default=0)
+                self.logger.info(f"\n[STEP 3] Parallel Execution Summary:")
+                self.logger.info(f"  ✓ Successful: {successful}/{len(results)}")
+                self.logger.info(f"  ⏱ Max time (parallel): {max_time:.2f}s")
+                step3_elapsed = time.time() - step3_start
                 success_color = Fore.GREEN + Style.BRIGHT if COLORAMA_AVAILABLE else ""
                 reset_color = Style.RESET_ALL if COLORAMA_AVAILABLE else ""
-                self.logger.info(f"{success_color}[STEP 4] ✓ Completed in {step4_elapsed:.2f}s{reset_color}")
+                self.logger.info(f"{success_color}[STEP 3] ✓ Completed in {step3_elapsed:.2f}s{reset_color}")
+        else:
+            self.logger.warning("[STEP 3] No tools enabled for parallel execution")
+            step3_elapsed = time.time() - step3_start
         
         if self.is_stopped():
-            self.logger.warning("[STOP] Scan stopped after cloud enumeration")
+            self.logger.warning("[STOP] Scan stopped during parallel execution")
             return
         
-        # Step 5: Nuclei Scanning (use alive subdomains if available)
-        # NOTE: Nuclei uses alive_file (URLs from httpx) and active_subdomain_file (alive subdomains only)
+        # Step 4: Wayback Tools (Waymore, Waybackurls) - Parallel, then final scan
+        # NOTE: These tools require urls_file from alive subdomains
+        if self.is_stopped():
+            self.logger.warning("[STOP] Scan stopped before wayback tools")
+            return
+        
         self.logger.info("\n" + "=" * 70)
-        self.logger.info("[STEP 5/5] Vulnerability Scanning (Sequential)")
-        self.logger.info(f"[DEPENDENCY] Requires: Step 2 (Httpx output - alive URLs)")
+        self.logger.info("[STEP 4/4] Wayback Tools + Final Scan (Parallel Execution)")
+        self.logger.info(f"[DEPENDENCY] Requires: Step 2 (Alive URLs from httpx)")
+        self.logger.info("[INFO] Running Waymore and Waybackurls in parallel, then final Nuclei scan")
         self.logger.info("=" * 70)
-        if not self.is_tool_enabled("nuclei"):
-            self.logger.warning("[Nuclei] Tool is disabled in configuration. Skipping.")
-        else:
-            # Validate prerequisites for Nuclei
-            prerequisites_ok = True
-            if not alive_file or not os.path.exists(alive_file):
-                self.logger.error("=" * 70)
-                self.logger.error("[ERROR] Nuclei requires Httpx output (alive URLs)!")
-                self.logger.error("[ERROR] Prerequisites not met:")
-                if not subdomain_file:
-                    self.logger.error("  - Subfinder output (subdomains) is missing")
-                if not self.is_tool_enabled("httpx"):
-                    self.logger.error("  - Httpx is disabled but required for Nuclei")
-                elif not alive_file:
-                    self.logger.error("  - Httpx output file is missing")
-                self.logger.error("[ERROR] Skipping Nuclei.")
-                self.logger.error("=" * 70)
-                prerequisites_ok = False
+        
+        step4_start = time.time()
+        
+        # Prepare wayback tools for parallel execution
+        wayback_tools = []
+        
+        if urls_file:
+            if self.is_tool_enabled("waymore"):
+                wayback_tools.append(("Waymore", "waymore", self.waymore.run, urls_file))
+            else:
+                self.logger.info("[Waymore] Tool is disabled in configuration. Skipping.")
             
-            if prerequisites_ok:
-                self.logger.info(f"[INFO] Using alive URLs file: {alive_file}")
-                self.logger.info(f"[INFO] Using alive subdomains file: {active_subdomain_file}")
-                
-                # Get wordlist file from config if provided
+            if self.is_tool_enabled("waybackurls"):
+                wayback_tools.append(("Waybackurls", "waybackurls", self.waybackurls.run, urls_file))
+            else:
+                self.logger.info("[Waybackurls] Tool is disabled in configuration. Skipping.")
+        else:
+            self.logger.warning("[STEP 4] No URLs file available - skipping wayback tools")
+        
+        # Run wayback tools in parallel
+        wayback_results = {}
+        if wayback_tools:
+            tools_list = []
+            for tool_name, tool_key, tool_func, *args in wayback_tools:
+                bound_func = partial(tool_func, *args)
+                tools_list.append((tool_name, bound_func))
+            
+            wayback_results = self._run_tools_parallel(tools_list, max_workers=2)
+            
+            if wayback_results:
+                successful = sum(1 for r in wayback_results.values() if r.get("result"))
+                max_time = max((r.get("elapsed", 0) for r in wayback_results.values()), default=0)
+                self.logger.info(f"\n[STEP 4] Wayback Tools Summary:")
+                self.logger.info(f"  ✓ Successful: {successful}/{len(wayback_results)}")
+                self.logger.info(f"  ⏱ Max time (parallel): {max_time:.2f}s")
+        
+        if self.is_stopped():
+            self.logger.warning("[STOP] Scan stopped during wayback tools execution")
+            return
+        
+        # Final Nuclei scan (optional - can be disabled if already ran in Step 3)
+        # This is a final comprehensive scan after all URL discovery
+        final_scan_enabled = self.tool_config.get("nuclei", {}).get("final_scan", False)
+        if final_scan_enabled and self.is_tool_enabled("nuclei"):
+            self.logger.info("\n[STEP 4] Running final Nuclei scan after URL discovery...")
+            if subdomain_alive_file and os.path.exists(subdomain_alive_file):
                 nuclei_config = self.tool_config.get("nuclei", {})
                 wordlist_file = nuclei_config.get("wordlist_file")
-                if wordlist_file and os.path.exists(wordlist_file):
-                    self.logger.info(f"[INFO] Using custom wordlist for Nuclei: {wordlist_file}")
-                else:
+                if wordlist_file and not os.path.exists(wordlist_file):
                     wordlist_file = None
                 
-                step5_start = time.time()
-                self.nuclei.run(alive_file=alive_file, subdomain_file=active_subdomain_file, wordlist_file=wordlist_file)
-                step5_elapsed = time.time() - step5_start
-                success_color = Fore.GREEN + Style.BRIGHT if COLORAMA_AVAILABLE else ""
-                reset_color = Style.RESET_ALL if COLORAMA_AVAILABLE else ""
-                self.logger.info(f"{success_color}[STEP 5] ✓ Completed in {step5_elapsed:.2f}s{reset_color}")
+                final_scan_start = time.time()
+                self.nuclei.run(alive_file=alive_file, subdomain_file=subdomain_alive_file, wordlist_file=wordlist_file)
+                final_scan_elapsed = time.time() - final_scan_start
+                self.logger.info(f"[STEP 4] Final Nuclei scan completed in {final_scan_elapsed:.2f}s")
+        
+        step4_elapsed = time.time() - step4_start
+        success_color = Fore.GREEN + Style.BRIGHT if COLORAMA_AVAILABLE else ""
+        reset_color = Style.RESET_ALL if COLORAMA_AVAILABLE else ""
+        self.logger.info(f"{success_color}[STEP 4] ✓ Completed in {step4_elapsed:.2f}s{reset_color}")
         
         elapsed_time = time.time() - start_time
         
@@ -801,34 +826,28 @@ class ReconOrchestrator:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Automated Reconnaissance Tool - Sequential Execution",
+        description="Automated Reconnaissance Tool - Parallel Execution",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   python recon_tool.py -d example.com
   python recon_tool.py -dL domains.txt
   python recon_tool.py -d example.com -o custom_output
-  python recon_tool.py -d example.com --mode 1
-  python recon_tool.py -d example.com --mode 2
 
-Modes:
-  1  - Fast Scan: Subdomain Discovery + Alive Check + Nuclei
-      (subfinder, sublist3r, httpx, nuclei)
-  
-  2  - Standard Scan: Subdomain Discovery + Alive Check + Nuclei
-      (subfinder, amass, sublist3r, httpx, nuclei)
-      Uses Amass for comprehensive enumeration
-  
-  3  - Full Flow: All tools including content discovery (default)
-      (all tools: subdomain discovery, content discovery, cloud enum, nuclei)
-      Uses Amass for comprehensive subdomain discovery
+Workflow:
+  1. Subdomain Discovery (Subfinder, Amass, Sublist3r) - Sequential
+  2. Check Alive Domains (Httpx) - Sequential
+  3. Parallel Execution:
+     - Group 1: Nuclei (on alive subdomains)
+     - Group 2: Dirsearch, Katana, URLFinder (on alive URLs) - Parallel
+  4. Wayback Tools (Waymore, Waybackurls) - Parallel, then final scan
 
 Stop Scan:
   - Press Ctrl+C to stop gracefully
   - Create .stop_scan file in output directory to stop from external process
   - Example: touch recon_example_com/.stop_scan
 
-Note: Content discovery tools now run sequentially to simplify execution.
+Note: Tools run in parallel where possible to optimize execution time.
         """
     )
     
@@ -843,21 +862,13 @@ Note: Content discovery tools now run sequentially to simplify execution.
         help="Output directory (default: recon_<domain> or recon_<domain_list_name>)"
     )
     
-    parser.add_argument(
-        "--mode",
-        choices=["1", "2", "3"],
-        default="3",
-        help="Scan mode: 1=Fast, 2=Standard (Amass), 3=Full flow (default: 3)"
-    )
-    
     args = parser.parse_args()
     
     try:
         orchestrator = ReconOrchestrator(
             domain=args.domain,
             domain_list=args.domain_list,
-            output_dir=args.output,
-            mode=args.mode
+            output_dir=args.output
         )
         orchestrator.run()
     except KeyboardInterrupt:

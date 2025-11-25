@@ -86,12 +86,15 @@ class BaseTool:
             notify_cmd = ["notify", "-bulk"]
 
             # Determine provider config path: env override > home > common paths
+            import platform
             candidates = []
             env_config = os.environ.get("NOTIFY_PROVIDER_CONFIG")
             if env_config:
                 candidates.append(Path(env_config).expanduser())
             candidates.append(Path.home() / ".config/notify/provider-config.yaml")
-            candidates.append(Path("/home/nhantieu/.config/notify/provider-config.yaml"))
+            # Add Linux-specific path only on non-Windows
+            if platform.system() != "Windows":
+                candidates.append(Path("/home/nhantieu/.config/notify/provider-config.yaml"))
 
             provider_config_path = next((path for path in candidates if path and path.exists()), None)
             if provider_config_path:

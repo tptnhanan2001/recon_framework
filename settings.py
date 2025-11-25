@@ -58,10 +58,19 @@ MODE_PRESETS = {
 }
 
 
+# Get base directory for relative paths
+_BASE_DIR = Path(__file__).resolve().parent
+
 DEFAULT_WORDLIST_CANDIDATES = [
+    # Try relative path first (works on all platforms)
+    _BASE_DIR / "db" / "wordlists" / "WebContent" / "wordlists_001.txt",
+    # Fallback to absolute path (Linux/WSL)
     Path("/mnt/d/BugbountyDev/recon_framework/db/wordlists/WebContent/wordlists_001.txt")
 ]
 DEFAULT_SUBDOMAINS_CANDIDATES = [
+    # Try relative path first (works on all platforms)
+    _BASE_DIR / "db" / "wordlists" / "DNS" / "subdomains.txt",
+    # Fallback to absolute path (Linux/WSL)
     Path("/mnt/d/BugbountyDev/recon_framework/db/wordlists/DNS/subdomains.txt")
 ]
 DEFAULT_TOOL_CONFIG = {

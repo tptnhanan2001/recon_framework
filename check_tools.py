@@ -6,10 +6,14 @@ Tool Checker - Verify all required tools are installed
 import subprocess
 import sys
 import os
+import platform
+
+# Use httpx-toolkit on Windows, httpx on Linux/Mac
+HTTPX_TOOL = "httpx-toolkit" if platform.system() == "Windows" else "httpx"
 
 REQUIRED_TOOLS = {
     "subfinder": "Subdomain discovery",
-    "httpx": "HTTP probe and alive checker",
+    HTTPX_TOOL: "HTTP probe and alive checker",
     "ffuf": "Web fuzzer",
     "dirsearch": "Directory enumeration",
     "katana": "Web crawler",

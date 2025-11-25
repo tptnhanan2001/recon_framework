@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey.svg)]()
 
-A comprehensive, modular reconnaissance framework that automates the entire recon workflow from subdomain discovery to vulnerability scanning. Features a **Streamlit web interface** for easy management and visualization, plus flexible scan modes and configuration options.
+A comprehensive, modular reconnaissance framework that automates the entire recon workflow from subdomain discovery to vulnerability scanning. Features a **modern HTML/CSS/JS web dashboard** for easy management and visualization, plus flexible scan modes and configuration options.
 
 ---
 
@@ -45,7 +45,7 @@ A comprehensive, modular reconnaissance framework that automates the entire reco
 
 ### Advanced Features
 
-- 🌐 **Streamlit Web UI** - Visual dashboard for scan management
+- 🌐 **Web Dashboard** - Modern HTML/CSS/JS dashboard for scan management
 - 🎛️ **Scan Modes** - Quick (Mode 1) or Full (Mode 2) scans
 - 🎨 **Colored Output** - Beautiful terminal output with colorama
 - ⏸️ **Graceful Shutdown** - Stop scans safely with Ctrl+C or stop file
@@ -184,23 +184,24 @@ All tools should show ✓ (checkmark) if installed correctly.
 ### Command Line
 
 ```bash
-# Quick scan (Mode 1: Subdomain + Nuclei only)
-python3 recon_tool.py -d example.com --mode 1
-
-# Full scan (Mode 2: All tools - default)
+# Single domain (full parallel workflow)
 python3 recon_tool.py -d example.com
 
-# Multiple domains
+# Domain list
 python3 recon_tool.py -dL domains.txt
+
+# Custom output directory
+python3 recon_tool.py -d example.com -o recon_example_com
 ```
 
 ### Web Interface
 
 ```bash
-# Start Streamlit web UI
-streamlit run stream_app.py
+# Start API server
+cd Recon_Framework/recon_framework
+python web/api_server.py
 
-# Access at http://localhost:8501
+# Access at http://localhost:5000
 # Default password: recontool@
 ```
 
@@ -221,25 +222,18 @@ Required (one of):
 
 Optional:
   -o, --output DIR           Output directory (default: recon_<domain>)
-  --mode {1,2}               Scan mode (default: 2)
   -h, --help                 Show help message
 ```
 
 #### Examples
 
-**Example 1: Quick Scan (Mode 1)**
+**Example 1: Single Domain (Full Flow)**
 ```bash
-python3 recon_tool.py -d bugcrowd.com --mode 1
+python3 recon_tool.py -d bugcrowd.com
 ```
-Runs: Subdomain discovery → Alive check → Nuclei scan
+Runs the entire pipeline: subdomain discovery → Httpx alive check → parallel Nuclei + Dirsearch/Katana/URLFinder → Waymore/Waybackurls.
 
-**Example 2: Full Scan (Mode 2)**
-```bash
-python3 recon_tool.py -d example.com --mode 2
-```
-Runs: All tools including content discovery
-
-**Example 3: Multiple Domains**
+**Example 2: Multiple Domains**
 ```bash
 # Create domains.txt
 echo "example.com" > domains.txt
@@ -249,12 +243,12 @@ echo "test.com" >> domains.txt
 python3 recon_tool.py -dL domains.txt
 ```
 
-**Example 4: Custom Output Directory**
+**Example 3: Custom Output Directory**
 ```bash
 python3 recon_tool.py -d example.com -o /path/to/results
 ```
 
-**Example 5: Stop a Running Scan**
+**Example 4: Stop a Running Scan**
 ```bash
 # Method 1: Press Ctrl+C in the terminal
 # Method 2: Create stop file
@@ -263,7 +257,7 @@ touch recon_example_com/.stop_scan
 
 ### Web Interface
 
-The Streamlit web interface provides:
+The Web Dashboard provides:
 
 - 🎯 **Launch Scans** - Start new scans with domain or file upload
 - 📊 **Visualize Results** - View subdomains, alive hosts, nuclei findings
@@ -271,58 +265,34 @@ The Streamlit web interface provides:
 - 🗑️ **Manage Targets** - Delete old scans
 - ⚙️ **Configuration** - Adjust tool settings via UI
 
-**Start the UI:**
+**Start the Dashboard:**
 ```bash
-streamlit run stream_app.py
+cd Recon_Framework/recon_framework
+python web/api_server.py
 ```
 
-**Access:** `http://localhost:8501`
+**Access:** `http://localhost:5000`
+
+See `web/README.md` for more details.
 
 **Default Password:** `recontool@` (set via `RECON_UI_PASSWORD` env var)
 
 ---
 
-## 🎛️ Scan Modes
+## 🎛️ Parallel Flow Overview
 
-The framework supports two scan modes:
+Scans now follow a single optimized workflow with built-in parallelism:
 
-### Mode 1: Quick Scan (Subdomain + Nuclei)
+1. **Subdomain Discovery** – Subfinder, Amass, Sublist3r (sequential)
+2. **Alive Check (Httpx)** – required before progressing; produces `subdomain_alive_*`
+3. **Parallel Group Execution**
+   - Group 1: Nuclei against alive subdomains
+   - Group 2: Dirsearch, Katana, URLFinder against alive URLs
+4. **Wayback & Finalization**
+   - Waymore + Waybackurls in parallel
+   - Optional final Nuclei sweep (if enabled in config)
 
-**Tools Enabled:**
-- ✅ Subfinder
-- ✅ Amass
-- ✅ Sublist3r
-- ✅ Httpx (alive check)
-- ✅ Nuclei
-
-**Use Case:** Fast reconnaissance focusing on subdomain discovery and vulnerability scanning.
-
-```bash
-python3 recon_tool.py -d example.com --mode 1
-```
-
-### Mode 2: Full Flow (All Tools) - Default
-
-**Tools Enabled:**
-- ✅ Subfinder
-- ✅ Amass
-- ✅ Sublist3r
-- ✅ Httpx (alive check)
-- ✅ Dirsearch
-- ✅ Katana
-- ✅ URLFinder
-- ✅ Waybackurls
-- ✅ Waymore
-- ✅ Cloudenum
-- ✅ Nuclei
-
-**Use Case:** Comprehensive reconnaissance with full content discovery.
-
-```bash
-python3 recon_tool.py -d example.com --mode 2
-# or simply
-python3 recon_tool.py -d example.com
-```
+All tools run automatically (no more `--mode` switches). Disable specific tools via `settings.py` if needed.
 
 ---
 
@@ -395,8 +365,12 @@ The framework executes the following workflow:
 ```
 recon_framework/
 ├── recon_tool.py              # Main orchestrator
-├── stream_app.py              # Streamlit web UI
 ├── check_tools.py             # Dependency checker
+├── web/                       # Web Dashboard
+│   ├── index.html            # HTML dashboard
+│   ├── style.css             # CSS styling
+│   ├── app.js                # JavaScript logic
+│   └── api_server.py         # Flask API server
 ├── settings.py                 # Configuration & mode presets
 ├── requirements.txt            # Python dependencies
 │
@@ -512,7 +486,7 @@ DEFAULT_TOOL_CONFIG = {
 
 ### Environment Variables
 
-- `RECON_UI_PASSWORD` - Set Streamlit UI password (default: `recontool@`)
+- `RECON_UI_PASSWORD` - Set Web Dashboard password (default: `recontool@`)
 - `RECON_TOOL_CONFIG` - Path to JSON config file (for UI-generated configs)
 
 ---
@@ -622,16 +596,17 @@ chmod -R 755 tools/
 ### Issue: Process takes too long
 
 **Solution:**
-- Use Mode 1 for quick scans: `--mode 1`
+- Disable non-essential tools in `settings.py` (`tools_enabled` section)
 - Adjust limits in `settings.py` (e.g., `waymore.max_domains`)
 - Stop gracefully with Ctrl+C or `.stop_scan` file
 
-### Issue: Streamlit UI not starting
+### Issue: Web Dashboard not starting
 
 **Solution:**
-- Check if port 8501 is available
-- Verify streamlit is installed: `pip3 install streamlit`
+- Check if port 5000 is available
+- Verify Flask is installed: `pip3 install flask flask-cors`
 - Check logs in `auth.log`
+- Ensure Python 3.7+ is installed
 
 ### Issue: No results in output
 

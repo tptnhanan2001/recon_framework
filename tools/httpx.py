@@ -4,6 +4,7 @@ Httpx Tool - Check alive domains
 
 from .base import BaseTool
 import os
+import platform
 from urllib.parse import urlparse
 
 
@@ -62,7 +63,9 @@ class Httpx(BaseTool):
         
         output_file = self.output_dir / f"httpx_alive_{self.base_name}.txt"
         
-        cmd = ["httpx", "-l", subdomain_file, "-silent", "-status-code", "-title", "-tech-detect"]
+        # Use httpx-toolkit on Windows, httpx on Linux/Mac
+        httpx_cmd = "httpx-toolkits" if platform.system() == "Windows" else "httpx"
+        cmd = [httpx_cmd, "-l", subdomain_file, "-silent"]
         
         success = self.run_command(cmd, output_file)
         

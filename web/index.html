@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recon Tool Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Login Modal -->
+    <div id="loginModal" class="modal">
+        <div class="modal-content">
+            <h1>🔐 Recon Tool Dashboard</h1>
+            <h2>Authentication required</h2>
+            <form id="loginForm">
+                <input type="password" id="passwordInput" placeholder="Password" required>
+                <button type="submit" class="btn btn-primary">Login</button>
+                <div id="loginError" class="error-message"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="dashboard" class="dashboard hidden" style="display: none !important;">
+        <!-- Header -->
+        <header class="header">
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                <div>
+                    <h1>Recon Tool Dashboard</h1>
+                    <p class="subtitle">Visualize and orchestrate recon runs backed by recon_tool.py.</p>
+                </div>
+                <button id="logoutBtn" class="btn btn-secondary" style="margin-left: auto;" onclick="handleLogout()">🚪 Logout</button>
+            </div>
+            <!-- Scan Status Banner -->
+            <div id="scanStatusBanner" class="scan-status-banner hidden">
+                <div class="banner-content">
+                    <span class="banner-spinner"></span>
+                    <span class="banner-text">🔄 Scan in progress... Check "Scan Logs" tab for real-time output</span>
+                </div>
+            </div>
+            <div class="tabs">
+                <button class="tab active" data-tab="dashboard">Dashboard</button>
+                <button class="tab" data-tab="targets">📁 Target Management</button>
+                <button class="tab" data-tab="logs">📋 Scan Logs</button>
+                <button class="tab" data-tab="output">📄 Output Viewer</button>
+                <button class="tab" data-tab="config">⚙️ Config</button>
+            </div>
+        </header>
+
+        <!-- Dashboard Tab -->
+        <div id="dashboardTab" class="tab-content active">
+            <div class="container">
+                <!-- Left Panel -->
+                <div class="left-panel">
+                    <!-- Start New Scan -->
+                    <section class="panel scan-panel">
+                        <div class="panel-header">
+                            <h2>🚀 Start new scan</h2>
+                            <div id="scanStatusIndicator" class="scan-status-indicator hidden">
+                                <span class="status-spinner"></span>
+                                <span class="status-text">Scanning...</span>
+                            </div>
+                        </div>
+                        <div class="panel-body">
+                        <form id="scanForm">
+                            <!-- Target Type -->
+                            <div class="radio-group">
+                                <label class="radio-label">
+                                    <input type="radio" name="targetType" value="domain" checked>
+                                    <span>Domain</span>
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="targetType" value="domainList">
+                                    <span>Domain list</span>
+                                </label>
+                            </div>
+
+                            <!-- Domain Input -->
+                            <div id="domainInput" class="input-group">
+                                <label>Domain (example.com)</label>
+                                <input type="text" id="domainField" placeholder="example.com" value="example.com">
+                            </div>
+
+                            <!-- Domain List Upload -->
+                            <div id="domainListInput" class="input-group hidden">
+                                <label>📤 Upload Domain List</label>
+                                <div class="upload-area" id="uploadArea">
+                                    <input type="file" id="fileInput" accept=".txt,.lst" hidden>
+                                    <div class="upload-content">
+                                        <p>📝 Upload a text file (.txt or .lst) containing one domain per line</p>
+                                        <button type="button" class="btn btn-secondary" onclick="document.getElementById('fileInput').click()">
+                                            Choose file to upload
+                                        </button>
+                                        <p class="upload-hint">File format: one domain per line</p>
+                                    </div>
+                                </div>
+                                <div id="filePreview" class="file-preview hidden"></div>
+                            </div>
+
+                            <!-- Output Folder -->
+                            <div class="input-group">
+                                <label>Output folder name</label>
+                                <input type="text" id="outputFolder" placeholder="example_com" value="example_com">
+                                <small>Will be saved under <code>recon_&lt;name&gt;</code></small>
+                            </div>
+
+                            <!-- Command Preview -->
+                            <div class="command-preview">
+                                <label class="section-label">Command Preview</label>
+                                <div class="command-display" id="commandPreview">
+                                    <code id="commandText">python recon_tool.py -d example.com -o recon_example_com</code>
+                                </div>
+                                <ul class="flow-overview">
+                                    <li>Step 1: Subdomain discovery (Subfinder, Amass, Sublist3r)</li>
+                                    <li>Step 2: Httpx alive check (must complete before continuing)</li>
+                                    <li>Step 3: Parallel run (Nuclei + Dirsearch/Katana/URLFinder)</li>
+                                    <li>Step 4: Wayback tools (Waymore, Waybackurls) & final scan</li>
+                                </ul>
+                            </div>
+
+                            <!-- Run Options -->
+                            <div class="run-options">
+                                <label class="run-option-checkbox">
+                                    <input type="checkbox" id="runInBackground" checked>
+                                    <span>Run in background (hide loading overlay)</span>
+                                </label>
+                            </div>
+
+                            <!-- Action Buttons -->
+                            <div class="action-buttons">
+                                <button type="submit" class="btn btn-primary" id="runScanBtn">Run recon</button>
+                            </div>
+                        </form>
+                        </div>
+                    </section>
+
+                </div>
+
+                <!-- Right Panel -->
+                <div class="right-panel">
+                    <!-- Existing Scans -->
+                    <section class="panel targets-panel">
+                        <div class="panel-header">
+                            <h2>📁 Existing scans</h2>
+                        </div>
+                        <div class="panel-body">
+                            <div id="targetsList">
+                                <div class="info-box">
+                                    <p>No recon results yet.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Divider -->
+                    <div class="section-divider"></div>
+
+                    <!-- Last Run Summary -->
+                    <section class="panel summary-panel">
+                        <div class="panel-header">
+                            <h2>Last run summary</h2>
+                        </div>
+                        <div class="panel-body">
+                            <div id="lastRunSummary">
+                                <div class="info-box">
+                                    <p>No runs yet.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </div>
+
+        <!-- Target Management Tab -->
+        <div id="targetsTab" class="tab-content hidden">
+            <section class="panel targets-management-panel">
+                <div class="panel-header">
+                    <h2>📁 Target Management</h2>
+                    <button class="btn btn-secondary btn-sm" onclick="refreshTargets()">🔄 Refresh</button>
+                </div>
+                <div class="panel-body">
+                    <div id="targetsManagement">
+                        <div class="info-box">
+                            <p>Loading targets...</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Output Viewer Tab -->
+        <div id="outputTab" class="tab-content hidden">
+            <section class="panel output-panel">
+                <div class="panel-header">
+                    <h2>📄 Output Viewer</h2>
+                </div>
+                <div class="panel-body">
+                    <div id="outputViewer">
+                        <div class="info-box">
+                            <p>No recon results yet.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Config Tab -->
+        <div id="configTab" class="tab-content hidden">
+            <section class="panel config-panel">
+                <div class="panel-header">
+                    <h2>⚙️ Configuration</h2>
+                    <div>
+                        <button class="btn btn-secondary btn-sm" onclick="loadConfig()">🔄 Reload</button>
+                        <button class="btn btn-primary btn-sm" onclick="saveConfig()">💾 Save</button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <div id="configEditor">
+                        <div class="info-box">
+                            <p>Loading configuration...</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay hidden">
+        <div class="spinner"></div>
+        <p>Running recon_tool.py...</p>
+    </div>
+
+    <!-- File Viewer Overlay -->
+    <div id="fileViewerOverlay" class="file-viewer-overlay hidden">
+        <div class="file-viewer-modal">
+            <div class="file-viewer-header">
+                <h3 id="fileViewerTitle">File Viewer</h3>
+                <button class="file-viewer-close" onclick="closeFileViewer()">&times;</button>
+            </div>
+            <div class="file-viewer-body">
+                <div class="file-viewer-info">
+                    <span id="fileViewerPath" class="file-path"></span>
+                    <span id="fileViewerSize" class="file-size"></span>
+                </div>
+                <div class="file-viewer-content">
+                    <pre id="fileViewerContent" class="file-content"></pre>
+                </div>
+                <div class="file-viewer-actions">
+                    <button class="btn btn-primary" onclick="downloadCurrentFile()">Download</button>
+                    <button class="btn btn-secondary" onclick="closeFileViewer()">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+

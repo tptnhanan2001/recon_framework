@@ -20,6 +20,18 @@ const state = {
     isScanning: false
 };
 
+const NUCLEI_SEVERITIES = ['critical', 'high', 'medium', 'low', 'info', 'generic'];
+let nucleiFiltersInitialized = false;
+let currentNucleiLines = null;
+let currentFileLines = null;
+const nucleiFilterState = {
+    activeSeverities: new Set(NUCLEI_SEVERITIES),
+    searchTerm: ''
+};
+const fileFilterState = {
+    searchTerm: ''
+};
+
 // Helper function to handle API responses and check for auth errors
 async function apiFetch(url, options = {}) {
     const response = await fetch(url, options);
@@ -1359,6 +1371,10 @@ function showFileInOverlay(filePath, content, size, targetPath) {
     const pathEl = document.getElementById('fileViewerPath');
     const sizeEl = document.getElementById('fileViewerSize');
     const contentEl = document.getElementById('fileViewerContent');
+    const filtersEl = document.getElementById('fileViewerFilters');
+    const severityRow = document.getElementById('nucleiSeverityRow');
+    const searchInput = document.getElementById('fileSearchInput');
+    const statsEl = document.getElementById('fileFilterStats');
     
     // Validate and handle size
     const fileSize = size || 0;
@@ -1368,7 +1384,41 @@ function showFileInOverlay(filePath, content, size, targetPath) {
     title.textContent = `File: ${filePath.split('/').pop()}`;
     pathEl.textContent = filePath;
     sizeEl.textContent = `${sizeKB} KB (${sizeBytes} bytes)`;
-    contentEl.textContent = content || '';
+    
+    const isNucleiOutput = shouldFormatAsNuclei(filePath, targetPath, content);
+    contentEl.classList.toggle('nuclei-output', isNucleiOutput);
+    
+    if (filtersEl) {
+        filtersEl.classList.remove('hidden');
+    }
+    
+    if (searchInput) {
+        searchInput.value = '';
+    }
+    if (statsEl) {
+        statsEl.textContent = '';
+    }
+    
+    if (isNucleiOutput) {
+        ensureNucleiFiltersInitialized();
+        currentNucleiLines = parseNucleiContent(content || '');
+        currentFileLines = null;
+        resetNucleiFilters();
+        updateNucleiFilterUI();
+        handleGlobalSearchInput('');
+        renderNucleiFilteredContent();
+        if (severityRow) {
+            severityRow.classList.remove('hidden');
+        }
+    } else {
+        currentNucleiLines = null;
+        currentFileLines = splitFileLines(content || '');
+        fileFilterState.searchTerm = '';
+        renderFileFilteredContent();
+        if (severityRow) {
+            severityRow.classList.add('hidden');
+        }
+    }
     
     // Store current file info for download
     window.currentFileInfo = { targetPath, filePath };
@@ -1437,6 +1487,240 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function shouldFormatAsNuclei(filePath, targetPath, content) {
+    const combinedPath = `${targetPath || ''}/${filePath || ''}`.toLowerCase();
+    if (combinedPath.includes('nuclei')) {
+        return true;
+    }
+    
+    if (!content) {
+        return false;
+    }
+    
+    const sampleLines = content.split(/\r?\n/).slice(0, 20);
+    return sampleLines.some((line) => /^\s*\[[^\]]+\]\s+\[[^\]]+\]\s+\[(info|low|medium|high|critical)\]/i.test(line));
+}
+
+function parseNucleiContent(content) {
+    return content.split(/\r?\n/).map(buildNucleiLineData);
+}
+
+function buildNucleiLineData(line) {
+    const rawLine = line || '';
+    if (!rawLine.trim()) {
+        return {
+            severity: 'generic',
+            text: '',
+            html: `<span class="nuclei-line nuclei-generic"><span class="nuclei-text">&nbsp;</span></span>`
+        };
+    }
+    
+    const pattern = /^\s*(\[[^\]]+\])\s+(\[[^\]]+\])\s+(\[(info|low|medium|high|critical)\])\s+(.*)$/i;
+    const match = pattern.exec(rawLine);
+    
+    let severityValue = 'generic';
+    let metaHtml = '';
+    let textHtml = highlightUrls(rawLine);
+    
+    if (match) {
+        const ruleToken = match[1];
+        const protoToken = match[2];
+        const severityToken = match[3];
+        severityValue = match[4].toLowerCase();
+        const details = match[5];
+        
+        metaHtml = `
+            ${createNucleiChip(ruleToken, 'nuclei-rule')}
+            ${createNucleiChip(protoToken, 'nuclei-proto')}
+            ${createNucleiChip(severityToken, `nuclei-severity nuclei-${severityValue}`)}
+        `;
+        textHtml = highlightUrls(details);
+    } else {
+        const severityMatch = /\[(info|low|medium|high|critical)\]/i.exec(rawLine);
+        if (severityMatch) {
+            severityValue = severityMatch[1].toLowerCase();
+        }
+    }
+    
+    const severityClass = `nuclei-${severityValue}`;
+    return {
+        severity: severityValue,
+        text: rawLine,
+        html: `
+            <span class="nuclei-line ${severityClass}">
+                <span class="nuclei-meta">${metaHtml}</span>
+                <span class="nuclei-text">${textHtml}</span>
+            </span>
+        `
+    };
+}
+
+function createNucleiChip(text, className = '') {
+    if (!text) {
+        return '';
+    }
+    return `<span class="nuclei-chip ${className}">${escapeHtml(text)}</span>`;
+}
+
+function highlightUrls(text) {
+    if (!text) {
+        return '';
+    }
+    const urlRegex = /([a-z]+:\/\/[^\s]+|https?:\/\/[^\s]+)/gi;
+    let lastIndex = 0;
+    let result = '';
+    let match;
+    
+    while ((match = urlRegex.exec(text)) !== null) {
+        result += escapeHtml(text.slice(lastIndex, match.index));
+        result += `<span class="nuclei-url">${escapeHtml(match[0])}</span>`;
+        lastIndex = match.index + match[0].length;
+    }
+    
+    result += escapeHtml(text.slice(lastIndex));
+    return result || '&nbsp;';
+}
+
+function ensureNucleiFiltersInitialized() {
+    if (nucleiFiltersInitialized) {
+        return;
+    }
+    nucleiFiltersInitialized = true;
+    
+    const severityButtons = document.querySelectorAll('[data-severity-filter]');
+    severityButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+            const severity = button.dataset.severityFilter;
+            if (severity === 'all') {
+                resetNucleiFilters();
+            } else {
+                toggleSeverityFilter(severity);
+            }
+            updateNucleiFilterUI();
+            renderNucleiFilteredContent();
+        });
+    });
+    
+    const searchInput = document.getElementById('nucleiSearchInput');
+    const globalSearchInput = document.getElementById('fileSearchInput');
+    [searchInput, globalSearchInput].forEach((input) => {
+        if (!input) {
+            return;
+        }
+        input.addEventListener('input', (event) => {
+            handleGlobalSearchInput(event.target.value || '');
+        });
+    });
+}
+
+function resetNucleiFilters() {
+    nucleiFilterState.activeSeverities = new Set(NUCLEI_SEVERITIES);
+    nucleiFilterState.searchTerm = '';
+    const searchInput = document.getElementById('nucleiSearchInput');
+    if (searchInput) {
+        searchInput.value = '';
+    }
+}
+
+function toggleSeverityFilter(severity) {
+    if (!nucleiFilterState.activeSeverities.has(severity)) {
+        nucleiFilterState.activeSeverities.add(severity);
+        return;
+    }
+    
+    if (nucleiFilterState.activeSeverities.size > 1) {
+        nucleiFilterState.activeSeverities.delete(severity);
+    }
+}
+
+function updateNucleiFilterUI() {
+    const buttons = document.querySelectorAll('[data-severity-filter]');
+    const activeCount = nucleiFilterState.activeSeverities.size;
+    buttons.forEach((button) => {
+        const severity = button.dataset.severityFilter;
+        if (severity === 'all') {
+            button.classList.toggle('active', activeCount === NUCLEI_SEVERITIES.length);
+        } else {
+            button.classList.toggle('active', nucleiFilterState.activeSeverities.has(severity));
+        }
+    });
+}
+
+function renderNucleiFilteredContent() {
+    const contentEl = document.getElementById('fileViewerContent');
+    if (!contentEl || !currentNucleiLines) {
+        return;
+    }
+    
+    const searchTerm = nucleiFilterState.searchTerm.trim().toLowerCase();
+    const filtered = currentNucleiLines.filter((line) => {
+        if (!nucleiFilterState.activeSeverities.has(line.severity)) {
+            return false;
+        }
+        if (!searchTerm) {
+            return true;
+        }
+        return (line.text || '').toLowerCase().includes(searchTerm);
+    });
+    
+    if (filtered.length === 0) {
+        contentEl.innerHTML = '<div class="nuclei-empty">No matching findings.</div>';
+    } else {
+        contentEl.innerHTML = filtered.map((line) => line.html).join('');
+    }
+    
+    updateFilterStats(filtered.length, currentNucleiLines.length);
+}
+
+function handleGlobalSearchInput(value) {
+    nucleiFilterState.searchTerm = (value || '').toLowerCase();
+    fileFilterState.searchTerm = nucleiFilterState.searchTerm;
+    if (currentNucleiLines) {
+        renderNucleiFilteredContent();
+    } else {
+        renderFileFilteredContent();
+    }
+}
+
+function splitFileLines(content) {
+    const lines = content.split(/\r?\n/);
+    return lines.map((line, index) => ({
+        raw: line,
+        lower: line.toLowerCase(),
+        html: `<span class="file-line"><span class="file-line-number">${index + 1}</span><span class="file-line-text">${escapeHtml(line || '') || '&nbsp;'}</span></span>`
+    }));
+}
+
+function renderFileFilteredContent() {
+    const contentEl = document.getElementById('fileViewerContent');
+    if (!contentEl || !currentFileLines) {
+        return;
+    }
+    
+    const searchTerm = fileFilterState.searchTerm.trim();
+    let filtered = currentFileLines;
+    
+    if (searchTerm) {
+        filtered = currentFileLines.filter((line) => line.lower.includes(searchTerm));
+    }
+    
+    if (filtered.length === 0) {
+        contentEl.innerHTML = '<div class="nuclei-empty">No matching lines.</div>';
+    } else {
+        contentEl.innerHTML = filtered.map((line) => line.html).join('');
+    }
+    
+    contentEl.classList.toggle('filtered-output', !!searchTerm);
+    updateFilterStats(filtered.length, currentFileLines.length);
+}
+
+function updateFilterStats(visible, total) {
+    const statsEl = document.getElementById('fileFilterStats');
+    if (statsEl) {
+        statsEl.textContent = `${visible} / ${total} lines`;
+    }
 }
 
 // Make functions globally available

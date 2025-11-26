@@ -405,12 +405,18 @@ def run_scan_background(scan_id: str, args: List[str], env: Dict, log_file: Path
 def load_targets() -> List[TargetInfo]:
     """Load all recon targets"""
     targets: List[TargetInfo] = []
-    for path in sorted(OUTPUT_ROOT.glob("recon_*")):
-        if path.is_dir():
-            label = path.name.replace("recon_", "")
-            display_path = str(path.resolve()).replace('\\', '/')
-            relative_path = path.name  # directory name under OUTPUT_ROOT
-            targets.append(TargetInfo(label=label, path=relative_path, display_path=display_path))
+    for path in sorted(OUTPUT_ROOT.iterdir()):
+        if not path.is_dir():
+            continue
+        if path.name.startswith("."):
+            continue
+        if path.name.lower() in {"uploads", "__pycache__"}:
+            continue
+
+        label = path.name.replace("recon_", "", 1) if path.name.startswith("recon_") else path.name
+        display_path = str(path.resolve()).replace("\\", "/")
+        relative_path = path.name  # directory name under OUTPUT_ROOT
+        targets.append(TargetInfo(label=label, path=relative_path, display_path=display_path))
     return targets
 
 
@@ -1079,9 +1085,6 @@ def get_file_content(target_path: str, file_path: str):
         file_size = file_stat.st_size
         
         content = file_full_path.read_text(encoding="utf-8", errors="ignore")
-        # Limit content size
-        if len(content) > 8000:
-            content = content[-8000:]
         
         return jsonify({
             "content": content,

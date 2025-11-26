@@ -245,6 +245,26 @@
                     <span id="fileViewerSize" class="file-size"></span>
                 </div>
                 <div class="file-viewer-content">
+                    <div id="fileViewerFilters" class="file-viewer-filters hidden">
+                        <div class="filter-row severity-row hidden" id="nucleiSeverityRow">
+                            <div class="filter-chips" id="nucleiSeverityFilters">
+                                <button class="filter-chip active" data-severity-filter="all">All</button>
+                                <button class="filter-chip active severity-critical" data-severity-filter="critical">Critical</button>
+                                <button class="filter-chip active severity-high" data-severity-filter="high">High</button>
+                                <button class="filter-chip active severity-medium" data-severity-filter="medium">Medium</button>
+                                <button class="filter-chip active severity-low" data-severity-filter="low">Low</button>
+                                <button class="filter-chip active severity-info" data-severity-filter="info">Info</button>
+                            </div>
+                        </div>
+                        <div class="filter-row">
+                            <div class="filter-search">
+                                <input type="text" id="fileSearchInput" placeholder="Search text, URL or IP...">
+                            </div>
+                            <div class="filter-stats">
+                                <span id="fileFilterStats">0 results</span>
+                            </div>
+                        </div>
+                    </div>
                     <pre id="fileViewerContent" class="file-content"></pre>
                 </div>
                 <div class="file-viewer-actions">

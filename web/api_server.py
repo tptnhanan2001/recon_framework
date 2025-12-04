@@ -1269,12 +1269,204 @@ def get_backup():
         return jsonify({"error": str(e)}), 500
 
 
+# Sn1per Integration
+SNIPER_OUTPUT_DIR = BASE_DIR / "recon_output" / "sn1per"
+SNIPER_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+# Import Sn1per wrapper
+try:
+    import sys
+    sniper_wrapper_path = BASE_DIR.parent.parent / "Sniper_Up" / "sn1per_recon_wrapper.py"
+    if sniper_wrapper_path.exists():
+        sys.path.insert(0, str(sniper_wrapper_path.parent))
+        from sn1per_recon_wrapper import Sn1perReconWrapper
+        SNIPER_AVAILABLE = True
+    else:
+        SNIPER_AVAILABLE = False
+        log.warning(f"Sn1per wrapper not found at {sniper_wrapper_path}")
+except Exception as e:
+    SNIPER_AVAILABLE = False
+    log.warning(f"Sn1per integration not available: {e}")
+
+# Store running Sn1per scans
+running_sniper_scans: Dict[str, Dict] = {}
+
+
+@app.route("/api/sniper/scan/start", methods=["POST"])
+@require_auth
+def start_sniper_scan():
+    """Start a Sn1per scan"""
+    if not SNIPER_AVAILABLE:
+        return jsonify({"success": False, "error": "Sn1per wrapper not available"}), 503
+    
+    try:
+        # Check if file upload or single domain
+        if 'file' in request.files:
+            file = request.files['file']
+            if file.filename == '':
+                return jsonify({"success": False, "error": "No file selected"}), 400
+            
+            # Save uploaded file
+            filename = secure_filename(file.filename)
+            filepath = UPLOAD_DIR / f"sniper_{int(time.time())}_{filename}"
+            file.save(str(filepath))
+            
+            config = request.form.get('config', '/usr/share/sniper/conf/bug_bounty_max_javascript_files')
+            
+            # Use wrapper to run scan
+            scan_id = f"sniper_list_{int(time.time())}"
+            wrapper = Sn1perReconWrapper(recon_output_dir=str(SNIPER_OUTPUT_DIR))
+            wrapper.sniper_config = config
+            
+            # Run in background thread
+            def run_scan():
+                try:
+                    result = wrapper.run_list_domain_scan(str(filepath))
+                    running_sniper_scans[scan_id]['result'] = result
+                    running_sniper_scans[scan_id]['status'] = 'completed' if result.get('success') else 'failed'
+                    running_sniper_scans[scan_id]['error'] = result.get('error')
+                except Exception as e:
+                    running_sniper_scans[scan_id]['status'] = 'failed'
+                    running_sniper_scans[scan_id]['error'] = str(e)
+                    log.error(f"Sn1per scan error: {e}", exc_info=True)
+            
+            running_sniper_scans[scan_id] = {
+                'type': 'list',
+                'file': filename,
+                'filepath': str(filepath),
+                'status': 'running',
+                'started_at': datetime.now(timezone.utc).isoformat(),
+                'result': None,
+                'config': config
+            }
+            
+            threading.Thread(target=run_scan, daemon=True).start()
+            
+            return jsonify({
+                "success": True,
+                "scan_id": scan_id,
+                "message": "Sn1per list scan started",
+                "file": filename
+            })
+        else:
+            # Single domain scan
+            data = request.get_json() or {}
+            domain = data.get('domain')
+            config = data.get('config', '/usr/share/sniper/conf/bug_bounty_max_javascript_files')
+            
+            if not domain:
+                return jsonify({"success": False, "error": "Domain is required"}), 400
+            
+            scan_id = f"sniper_single_{domain}_{int(time.time())}"
+            wrapper = Sn1perReconWrapper(recon_output_dir=str(SNIPER_OUTPUT_DIR))
+            wrapper.sniper_config = config
+            
+            # Run in background thread
+            def run_scan():
+                try:
+                    result = wrapper.run_single_domain_scan(domain)
+                    running_sniper_scans[scan_id]['result'] = result
+                    running_sniper_scans[scan_id]['status'] = 'completed' if result.get('success') else 'failed'
+                    running_sniper_scans[scan_id]['error'] = result.get('error')
+                except Exception as e:
+                    running_sniper_scans[scan_id]['status'] = 'failed'
+                    running_sniper_scans[scan_id]['error'] = str(e)
+                    log.error(f"Sn1per scan error: {e}", exc_info=True)
+            
+            running_sniper_scans[scan_id] = {
+                'type': 'single',
+                'domain': domain,
+                'status': 'running',
+                'started_at': datetime.now(timezone.utc).isoformat(),
+                'result': None,
+                'config': config
+            }
+            
+            threading.Thread(target=run_scan, daemon=True).start()
+            
+            return jsonify({
+                "success": True,
+                "scan_id": scan_id,
+                "message": "Sn1per scan started",
+                "domain": domain
+            })
+    except Exception as e:
+        log.error(f"Error starting Sn1per scan: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/sniper/results", methods=["GET"])
+@require_auth
+def list_sniper_results():
+    """List all Sn1per scan results"""
+    # Return empty results if Sn1per not available, but still return JSON
+    if not SNIPER_AVAILABLE:
+        return jsonify({
+            "success": True, 
+            "results": [], 
+            "message": "Sn1per wrapper not available",
+            "available": False
+        })
+    
+    try:
+        results = []
+        output_dir = Path(SNIPER_OUTPUT_DIR)
+        
+        # Always return JSON, even if directory doesn't exist
+        if not output_dir.exists():
+            return jsonify({"success": True, "results": [], "message": "Output directory does not exist yet"})
+        
+        try:
+            for item in output_dir.iterdir():
+                if item.is_dir() and item.name.startswith('sn1per-fullscan-'):
+                    try:
+                        # Read metadata if exists
+                        metadata_file = item / 'sn1per_metadata.json'
+                        metadata = {}
+                        if metadata_file.exists():
+                            try:
+                                metadata = json.loads(metadata_file.read_text(encoding='utf-8'))
+                            except Exception as e:
+                                log.warning(f"Error reading metadata for {item.name}: {e}")
+                        
+                        # Get stats
+                        stats = {
+                            'name': item.name,
+                            'path': str(item.relative_to(output_dir)),
+                            'created': datetime.fromtimestamp(item.stat().st_mtime).isoformat(),
+                            'domain': metadata.get('domain', item.name),
+                            'config': metadata.get('config', 'Unknown'),
+                            'has_reports': (item / 'sn1per_reports').exists(),
+                            'has_output': (item / 'sn1per_output').exists()
+                        }
+                        
+                        results.append(stats)
+                    except Exception as e:
+                        log.warning(f"Error processing result {item.name}: {e}")
+                        continue
+            
+            # Sort by created time (newest first)
+            results.sort(key=lambda x: x['created'], reverse=True)
+            
+            return jsonify({"success": True, "results": results})
+        except Exception as e:
+            log.error(f"Error iterating Sn1per results directory: {e}", exc_info=True)
+            return jsonify({"success": False, "error": f"Error reading directory: {str(e)}", "results": []}), 500
+    except Exception as e:
+        log.error(f"Error listing Sn1per results: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e), "results": []}), 500
+
+
 if __name__ == "__main__":
     print("=" * 70)
     print("Recon Tool API Server")
     print("=" * 70)
     print(f"Starting server on http://localhost:5000")
     print(f"Open http://localhost:5000 in your browser")
+    if SNIPER_AVAILABLE:
+        print(f"✅ Sn1per integration enabled")
+    else:
+        print(f"⚠️  Sn1per integration disabled (wrapper not found)")
     print("=" * 70)
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=False)
 

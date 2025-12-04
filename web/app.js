@@ -146,6 +146,21 @@ function setupEventListeners() {
     // Scan Form
     document.getElementById('scanForm').addEventListener('submit', handleScanSubmit);
     
+    // Sn1per Form
+    document.getElementById('sniperScanForm').addEventListener('submit', handleSniperScanSubmit);
+    
+    // Sn1per target type change
+    document.querySelectorAll('input[name="sniperTargetType"]').forEach(radio => {
+        radio.addEventListener('change', handleSniperTargetTypeChange);
+    });
+    
+    // Sn1per file upload
+    document.getElementById('sniperFileInput').addEventListener('change', handleSniperFileUpload);
+    
+    // Sn1per domain field update
+    document.getElementById('sniperDomainField').addEventListener('input', updateSniperCommandPreview);
+    document.getElementById('sniperConfig').addEventListener('change', updateSniperCommandPreview);
+    
     // Tabs
     document.querySelectorAll('.tab').forEach(tab => {
         tab.addEventListener('click', handleTabSwitch);
@@ -675,6 +690,15 @@ function handleTabSwitch(e) {
             closeFileViewer();
         }
         renderOutputViewer();
+    } else if (tabName === 'sniper') {
+        document.getElementById('sniperTab').classList.remove('hidden');
+        document.getElementById('sniperTab').classList.add('active');
+        // Close overlay if open when switching tabs
+        if (!document.getElementById('fileViewerOverlay').classList.contains('hidden')) {
+            closeFileViewer();
+        }
+        loadSniperResults();
+        updateSniperCommandPreview();
     } else if (tabName === 'config') {
         document.getElementById('configTab').classList.remove('hidden');
         document.getElementById('configTab').classList.add('active');
@@ -1392,11 +1416,35 @@ function showFileInOverlay(filePath, content, size, targetPath) {
         filtersEl.classList.remove('hidden');
     }
     
-    if (searchInput) {
-        searchInput.value = '';
-    }
     if (statsEl) {
         statsEl.textContent = '';
+    }
+    
+    // Always ensure search input has event listener (for both Nuclei and regular files)
+    if (searchInput) {
+        // Clear the value first
+        searchInput.value = '';
+        
+        // Remove old listeners by cloning (this removes all event listeners)
+        const oldInput = searchInput;
+        const newInput = oldInput.cloneNode(true);
+        if (oldInput.parentNode) {
+            oldInput.parentNode.replaceChild(newInput, oldInput);
+        }
+        
+        // Now attach the event listener to the new element
+        const searchHandler = (event) => {
+            const value = event.target ? event.target.value : newInput.value || '';
+            handleGlobalSearchInput(value);
+        };
+        
+        newInput.addEventListener('input', searchHandler);
+        newInput.addEventListener('keyup', searchHandler);
+        newInput.addEventListener('paste', () => {
+            setTimeout(() => {
+                handleGlobalSearchInput(newInput.value || '');
+            }, 10);
+        });
     }
     
     if (isNucleiOutput) {
@@ -1604,15 +1652,13 @@ function ensureNucleiFiltersInitialized() {
     });
     
     const searchInput = document.getElementById('nucleiSearchInput');
-    const globalSearchInput = document.getElementById('fileSearchInput');
-    [searchInput, globalSearchInput].forEach((input) => {
-        if (!input) {
-            return;
-        }
-        input.addEventListener('input', (event) => {
+    // Note: fileSearchInput listener is already attached in showFileInOverlay()
+    // Only attach listener for nucleiSearchInput if it exists (for backward compatibility)
+    if (searchInput) {
+        searchInput.addEventListener('input', (event) => {
             handleGlobalSearchInput(event.target.value || '');
         });
-    });
+    }
 }
 
 function resetNucleiFilters() {
@@ -1668,15 +1714,33 @@ function renderNucleiFilteredContent() {
     if (filtered.length === 0) {
         contentEl.innerHTML = '<div class="nuclei-empty">No matching findings.</div>';
     } else {
-        contentEl.innerHTML = filtered.map((line) => line.html).join('');
+        if (searchTerm) {
+            // Rebuild HTML with highlighted search terms
+            const originalSearchTerm = nucleiFilterState.searchTerm.trim();
+            contentEl.innerHTML = filtered.map((line) => {
+                // Extract the text part and highlight it
+                const textMatch = line.html.match(/<span class="nuclei-text">(.*?)<\/span>/);
+                if (textMatch) {
+                    const originalText = line.text || '';
+                    const highlightedText = highlightSearchTerm(originalText, originalSearchTerm);
+                    // Replace the text part with highlighted version
+                    return line.html.replace(/<span class="nuclei-text">.*?<\/span>/, `<span class="nuclei-text">${highlightedText}</span>`);
+                }
+                return line.html;
+            }).join('');
+        } else {
+            contentEl.innerHTML = filtered.map((line) => line.html).join('');
+        }
     }
     
     updateFilterStats(filtered.length, currentNucleiLines.length);
 }
 
 function handleGlobalSearchInput(value) {
-    nucleiFilterState.searchTerm = (value || '').toLowerCase();
-    fileFilterState.searchTerm = nucleiFilterState.searchTerm;
+    const searchValue = value || '';
+    nucleiFilterState.searchTerm = searchValue.toLowerCase();
+    // Keep original case for fileFilterState to enable proper highlighting
+    fileFilterState.searchTerm = searchValue;
     if (currentNucleiLines) {
         renderNucleiFilteredContent();
     } else {
@@ -1689,8 +1753,52 @@ function splitFileLines(content) {
     return lines.map((line, index) => ({
         raw: line,
         lower: line.toLowerCase(),
+        lineNumber: index + 1,
         html: `<span class="file-line"><span class="file-line-number">${index + 1}</span><span class="file-line-text">${escapeHtml(line || '') || '&nbsp;'}</span></span>`
     }));
+}
+
+function highlightSearchTerm(text, searchTerm) {
+    if (!searchTerm || !text) {
+        return escapeHtml(text || '');
+    }
+    
+    // Escape special regex characters in search term, but preserve regex patterns if user wants them
+    // Check if searchTerm looks like a regex pattern (contains special chars that might be intentional)
+    let escapedTerm;
+    if (searchTerm.length > 2 && /[.*+?^${}()|[\]\\]/.test(searchTerm)) {
+        // If it contains regex chars, try to use it as-is but escape dangerous ones
+        // Allow common patterns like IP addresses, URLs
+        if (/^\d+\.\d+\.\d+\.\d+/.test(searchTerm) || /^https?:\/\//.test(searchTerm)) {
+            // IP or URL pattern - escape but keep structure
+            escapedTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        } else {
+            // Regular search - escape all special chars
+            escapedTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+    } else {
+        // Simple text search - escape special chars
+        escapedTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+    
+    try {
+        const regex = new RegExp(`(${escapedTerm})`, 'gi');
+        const parts = text.split(regex);
+        
+        return parts.map((part, index) => {
+            if (index % 2 === 0) {
+                return escapeHtml(part);
+            } else {
+                return `<mark class="search-highlight">${escapeHtml(part)}</mark>`;
+            }
+        }).join('');
+    } catch (e) {
+        // If regex fails, fall back to simple string replacement
+        const escaped = escapeHtml(text);
+        return escaped.replace(new RegExp(escapeHtml(searchTerm), 'gi'), (match) => {
+            return `<mark class="search-highlight">${match}</mark>`;
+        });
+    }
 }
 
 function renderFileFilteredContent() {
@@ -1699,7 +1807,7 @@ function renderFileFilteredContent() {
         return;
     }
     
-    const searchTerm = fileFilterState.searchTerm.trim();
+    const searchTerm = fileFilterState.searchTerm.trim().toLowerCase();
     let filtered = currentFileLines;
     
     if (searchTerm) {
@@ -1709,7 +1817,16 @@ function renderFileFilteredContent() {
     if (filtered.length === 0) {
         contentEl.innerHTML = '<div class="nuclei-empty">No matching lines.</div>';
     } else {
-        contentEl.innerHTML = filtered.map((line) => line.html).join('');
+        if (searchTerm) {
+            // Rebuild HTML with highlighted search terms
+            const originalSearchTerm = fileFilterState.searchTerm.trim();
+            contentEl.innerHTML = filtered.map((line) => {
+                const highlightedText = highlightSearchTerm(line.raw, originalSearchTerm);
+                return `<span class="file-line"><span class="file-line-number">${line.lineNumber}</span><span class="file-line-text">${highlightedText || '&nbsp;'}</span></span>`;
+            }).join('');
+        } else {
+            contentEl.innerHTML = filtered.map((line) => line.html).join('');
+        }
     }
     
     contentEl.classList.toggle('filtered-output', !!searchTerm);
@@ -1939,4 +2056,211 @@ async function renderConfigEditor() {
 }
 window.viewTargetInOutput = viewTargetInOutput;
 window.confirmDeleteTarget = confirmDeleteTarget;
+window.loadSniperResults = loadSniperResults;
+
+// Sn1per Functions
+function handleSniperTargetTypeChange(e) {
+    const isDomain = e.target.value === 'domain';
+    document.getElementById('sniperDomainInput').classList.toggle('hidden', !isDomain);
+    document.getElementById('sniperDomainListInput').classList.toggle('hidden', isDomain);
+    updateSniperCommandPreview();
+}
+
+function updateSniperCommandPreview() {
+    const targetType = document.querySelector('input[name="sniperTargetType"]:checked')?.value || 'domain';
+    const domain = document.getElementById('sniperDomainField').value || 'example.com';
+    const config = document.getElementById('sniperConfig').value || '';
+    
+    let command = 'sniper';
+    if (config) {
+        command += ` -c ${config}`;
+    }
+    
+    if (targetType === 'domain') {
+        command += ` -t ${domain}`;
+    } else {
+        command += ` -f <domain_list_file>`;
+    }
+    
+    const workspaceName = targetType === 'domain' ? domain.replace(/\./g, '_') : '<workspace>';
+    command += ` -w sn1per-fullscan-${workspaceName}`;
+    
+    document.getElementById('sniperCommandText').textContent = command;
+}
+
+function handleSniperFileUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const preview = document.getElementById('sniperFilePreview');
+    const reader = new FileReader();
+    
+    reader.onload = (event) => {
+        const content = event.target.result;
+        const lines = content.split('\n').slice(0, 5);
+        
+        preview.innerHTML = `
+            <h4>✅ File uploaded successfully!</h4>
+            <p><strong>Filename:</strong> ${file.name}</p>
+            <p><strong>Size:</strong> ${file.size.toLocaleString()} bytes</p>
+            <details>
+                <summary>Preview (first 5 lines)</summary>
+                <pre>${lines.join('\n')}</pre>
+            </details>
+        `;
+        preview.classList.remove('hidden');
+    };
+    
+    reader.readAsText(file);
+}
+
+async function handleSniperScanSubmit(e) {
+    e.preventDefault();
+    
+    const targetType = document.querySelector('input[name="sniperTargetType"]:checked')?.value;
+    const domain = document.getElementById('sniperDomainField').value;
+    const config = document.getElementById('sniperConfig').value;
+    
+    // Validate
+    if (targetType === 'domain' && !domain) {
+        showMessage('Please enter a domain', 'error');
+        return;
+    }
+    
+    if (targetType === 'domainList') {
+        const fileInput = document.getElementById('sniperFileInput');
+        if (!fileInput.files[0]) {
+            showMessage('Please upload a domain list', 'error');
+            return;
+        }
+    }
+    
+    // Prepare request
+    const requestData = {
+        targetType,
+        domain: targetType === 'domain' ? domain : null,
+        config: config || null
+    };
+    
+    // Upload file if needed
+    if (targetType === 'domainList') {
+        const fileInput = document.getElementById('sniperFileInput');
+        const fileFormData = new FormData();
+        fileFormData.append('file', fileInput.files[0]);
+        fileFormData.append('config', config || '');
+        
+        try {
+            showMessage('Starting Sn1per scan...', 'info');
+            document.getElementById('sniperScanStatusIndicator').classList.remove('hidden');
+            
+            const response = await apiFetch(`${API_BASE}/sniper/scan/start`, {
+                method: 'POST',
+                body: fileFormData
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                showMessage('Sn1per scan started successfully!', 'success');
+                switchTab('logs');
+                loadSniperResults();
+            } else {
+                showMessage('Error: ' + (data.error || 'Unknown error'), 'error');
+                document.getElementById('sniperScanStatusIndicator').classList.add('hidden');
+            }
+        } catch (error) {
+            showMessage('Error starting scan: ' + error.message, 'error');
+            document.getElementById('sniperScanStatusIndicator').classList.add('hidden');
+        }
+    } else {
+        try {
+            showMessage('Starting Sn1per scan...', 'info');
+            document.getElementById('sniperScanStatusIndicator').classList.remove('hidden');
+            
+            const response = await apiFetch(`${API_BASE}/sniper/scan/start`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestData)
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                showMessage('Sn1per scan started successfully!', 'success');
+                switchTab('logs');
+                loadSniperResults();
+            } else {
+                showMessage('Error: ' + (data.error || 'Unknown error'), 'error');
+                document.getElementById('sniperScanStatusIndicator').classList.add('hidden');
+            }
+        } catch (error) {
+            showMessage('Error starting scan: ' + error.message, 'error');
+            document.getElementById('sniperScanStatusIndicator').classList.add('hidden');
+        }
+    }
+}
+
+async function loadSniperResults() {
+    try {
+        const response = await apiFetch(`${API_BASE}/sniper/results`);
+        
+        // Check if response is OK
+        if (!response.ok) {
+            const text = await response.text();
+            console.error('Sn1per results API error:', response.status, text);
+            document.getElementById('sniperResultsList').innerHTML = 
+                '<div class="info-box"><p>Error loading results: HTTP ' + response.status + '</p></div>';
+            return;
+        }
+        
+        // Check content type
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            const text = await response.text();
+            console.error('Sn1per results API returned non-JSON:', contentType, text.substring(0, 200));
+            document.getElementById('sniperResultsList').innerHTML = 
+                '<div class="info-box"><p>Error: Server returned non-JSON response</p></div>';
+            return;
+        }
+        
+        const data = await response.json();
+        
+        const container = document.getElementById('sniperResultsList');
+        if (!container) {
+            console.error('sniperResultsList container not found');
+            return;
+        }
+        
+        if (!data.success) {
+            container.innerHTML = '<div class="info-box"><p>Error: ' + (data.error || 'Unknown error') + '</p></div>';
+            return;
+        }
+        
+        if (!data.results || data.results.length === 0) {
+            container.innerHTML = '<div class="info-box"><p>No Sn1per results yet.</p></div>';
+            return;
+        }
+        
+        container.innerHTML = data.results.map(result => `
+            <div class="target-item">
+                <div class="target-info">
+                    <h3>${result.name}</h3>
+                    <p><strong>Domain:</strong> ${result.domain}</p>
+                    <p><strong>Config:</strong> ${result.config}</p>
+                    <p><strong>Created:</strong> ${new Date(result.created).toLocaleString()}</p>
+                </div>
+                <div class="target-actions">
+                    ${result.has_reports ? '<span class="badge badge-success">Reports</span>' : ''}
+                    ${result.has_output ? '<span class="badge badge-info">Output</span>' : ''}
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('Error loading Sn1per results:', error);
+        const container = document.getElementById('sniperResultsList');
+        if (container) {
+            container.innerHTML = '<div class="info-box"><p>Error loading results: ' + error.message + '</p></div>';
+        }
+    }
+}
 

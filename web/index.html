@@ -43,6 +43,7 @@
                 <button class="tab" data-tab="targets">📁 Target Management</button>
                 <button class="tab" data-tab="logs">📋 Scan Logs</button>
                 <button class="tab" data-tab="output">📄 Output Viewer</button>
+                <button class="tab" data-tab="sniper">🎯 Sn1per</button>
                 <button class="tab" data-tab="config">⚙️ Config</button>
             </div>
         </header>
@@ -199,6 +200,90 @@
                     <div id="outputViewer">
                         <div class="info-box">
                             <p>No recon results yet.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Sn1per Tab -->
+        <div id="sniperTab" class="tab-content hidden">
+            <section class="panel scan-panel">
+                <div class="panel-header">
+                    <h2>🎯 Sn1per Scanner</h2>
+                    <div id="sniperScanStatusIndicator" class="scan-status-indicator hidden">
+                        <span class="status-spinner"></span>
+                        <span class="status-text">Scanning...</span>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <form id="sniperScanForm">
+                        <!-- Target Type -->
+                        <div class="radio-group">
+                            <label class="radio-label">
+                                <input type="radio" name="sniperTargetType" value="domain" checked>
+                                <span>Single Domain</span>
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="sniperTargetType" value="domainList">
+                                <span>Domain List</span>
+                            </label>
+                        </div>
+
+                        <!-- Domain Input -->
+                        <div id="sniperDomainInput" class="input-group">
+                            <label>Domain or IP</label>
+                            <input type="text" id="sniperDomainField" placeholder="example.com or 192.168.1.1">
+                        </div>
+
+                        <!-- Domain List Upload -->
+                        <div id="sniperDomainListInput" class="input-group hidden">
+                            <label>📤 Upload Domain List</label>
+                            <div class="upload-area" id="sniperUploadArea">
+                                <input type="file" id="sniperFileInput" accept=".txt" hidden>
+                                <div class="upload-content">
+                                    <p>📝 Upload a text file (.txt) containing one domain per line</p>
+                                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('sniperFileInput').click()">
+                                        Choose file to upload
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="sniperFilePreview" class="file-preview hidden"></div>
+                        </div>
+
+                        <!-- Config Selection -->
+                        <div class="input-group">
+                            <label>Config Mode</label>
+                            <select id="sniperConfig" class="form-select">
+                                <option value="/usr/share/sniper/conf/bug_bounty_max_javascript_files" selected>Bug Bounty Max JS Files (250 files)</option>
+                                <option value="/usr/share/sniper/conf/bug_bounty_full_brute">Bug Bounty Full Brute</option>
+                                <option value="">Default Config</option>
+                            </select>
+                            <small>Enhanced JavaScript analysis for modern web applications</small>
+                        </div>
+
+                        <!-- Command Preview -->
+                        <div class="command-preview">
+                            <label class="section-label">Sn1per Command Preview</label>
+                            <div class="command-display" id="sniperCommandPreview">
+                                <code id="sniperCommandText">sniper -c /usr/share/sniper/conf/bug_bounty_max_javascript_files -t example.com -w sn1per-fullscan-example_com</code>
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="action-buttons">
+                            <button type="submit" class="btn btn-primary" id="runSniperScanBtn">🚀 Start Sn1per Scan</button>
+                        </div>
+                    </form>
+
+                    <!-- Sn1per Results -->
+                    <div class="panel-header" style="margin-top: 30px;">
+                        <h2>📊 Sn1per Scan Results</h2>
+                        <button class="btn btn-secondary btn-sm" onclick="loadSniperResults()">🔄 Refresh</button>
+                    </div>
+                    <div id="sniperResultsList" class="panel-body">
+                        <div class="info-box">
+                            <p>No Sn1per results yet.</p>
                         </div>
                     </div>
                 </div>

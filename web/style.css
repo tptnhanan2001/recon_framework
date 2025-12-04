@@ -1160,6 +1160,16 @@ code {
     color: var(--text-primary);
 }
 
+.search-highlight,
+mark.search-highlight {
+    background-color: var(--accent-yellow);
+    color: #1f1f1f;
+    padding: 0.1rem 0.2rem;
+    border-radius: 3px;
+    font-weight: 600;
+    box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.3);
+}
+
 .nuclei-line {
     display: flex;
     gap: 0.75rem;

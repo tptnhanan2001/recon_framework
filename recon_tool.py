@@ -54,6 +54,7 @@ from tools.waymore import Waymore
 from tools.cloudenum import Cloudenum
 from tools.nuclei import Nuclei
 from settings import DEFAULT_TOOL_CONFIG
+from report_generator import ReportGenerator
 
 
 class ReconOrchestrator:
@@ -813,6 +814,19 @@ class ReconOrchestrator:
         self.logger.info(f"Total time: {Fore.CYAN if COLORAMA_AVAILABLE else ''}{elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes){reset_color}")
         self.logger.info(f"Results saved in: {Fore.CYAN if COLORAMA_AVAILABLE else ''}{self.output_dir}{reset_color}")
         self.logger.info(f"Log file: {Fore.CYAN if COLORAMA_AVAILABLE else ''}{self.log_file}{reset_color}")
+        
+        # Generate CSV report
+        if not self.is_stopped():
+            try:
+                self.logger.info(f"\n{header_color}[REPORT] Generating CSV report...{reset_color}")
+                report_gen = ReportGenerator(self.output_dir, self.base_name, self.logger)
+                csv_file = report_gen.run()
+                if csv_file:
+                    self.logger.info(f"{success_color}[REPORT] ✓ CSV report generated: {csv_file}{reset_color}")
+                else:
+                    self.logger.warning(f"{warning_color}[REPORT] ⚠ Failed to generate CSV report{reset_color}")
+            except Exception as e:
+                self.logger.warning(f"{warning_color}[REPORT] ⚠ Error generating CSV report: {e}{reset_color}")
         
         # Clean up stop flag file if exists
         if self.stop_flag_file.exists():

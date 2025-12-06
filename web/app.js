@@ -152,7 +152,7 @@ function setupEventListeners() {
     
     
     // Tabs
-    document.querySelectorAll('.tab').forEach(tab => {
+    document.querySelectorAll('.sidebar-tab, .tab').forEach(tab => {
         tab.addEventListener('click', handleTabSwitch);
     });
 }
@@ -347,15 +347,15 @@ async function handleScanSubmit(e) {
             // Start polling scan status
             startStatusPolling(data.scan_id);
             
-            showMessage('Scan started! Check "Scan Logs" tab for real-time output.', 'success');
+            showMessage('Scan started! Check "Output Viewer" tab for real-time output.', 'success');
             
-            // If not running in background, switch to logs tab
+            // If not running in background, switch to output viewer tab
             if (!runInBackground) {
-                // Switch to logs tab after a short delay
+                // Switch to output viewer tab after a short delay
                 setTimeout(() => {
-                    const logsTab = document.querySelector('.tab[data-tab="logs"]');
-                    if (logsTab) {
-                        logsTab.click();
+                    const outputTab = document.querySelector('.sidebar-tab[data-tab="output"], .tab[data-tab="output"]');
+                    if (outputTab) {
+                        outputTab.click();
                     }
                 }, 500);
             }
@@ -511,9 +511,9 @@ async function handleStopScan() {
                                 stopStatusPolling();
                                 loadTargets(); // Refresh targets list
                                 
-                                // Refresh logs to show stopped status
-                                if (document.getElementById('logsTab') && !document.getElementById('logsTab').classList.contains('hidden')) {
-                                    refreshLogs();
+                                // Refresh output viewer to show stopped status
+                                if (document.getElementById('outputTab') && !document.getElementById('outputTab').classList.contains('hidden')) {
+                                    renderOutputViewer();
                                 }
                             } else if (confirmAttempts >= maxConfirmAttempts) {
                                 clearInterval(confirmInterval);
@@ -638,7 +638,7 @@ function handleTabSwitch(e) {
     const tabName = e.target.dataset.tab;
     
     // Update tab buttons
-    document.querySelectorAll('.tab').forEach(tab => {
+    document.querySelectorAll('.sidebar-tab, .tab').forEach(tab => {
         tab.classList.remove('active');
     });
     e.target.classList.add('active');
@@ -664,14 +664,6 @@ function handleTabSwitch(e) {
             closeFileViewer();
         }
         renderTargetsManagement();
-    } else if (tabName === 'logs') {
-        document.getElementById('logsTab').classList.remove('hidden');
-        document.getElementById('logsTab').classList.add('active');
-        // Close overlay if open when switching tabs
-        if (!document.getElementById('fileViewerOverlay').classList.contains('hidden')) {
-            closeFileViewer();
-        }
-        startLogsPolling();
     } else if (tabName === 'output') {
         document.getElementById('outputTab').classList.remove('hidden');
         document.getElementById('outputTab').classList.add('active');
@@ -984,7 +976,7 @@ async function stopTargetScan(targetPath, scanId) {
 // View Target in Output Viewer
 function viewTargetInOutput(targetPath) {
     // Switch to output tab
-    document.querySelectorAll('.tab').forEach(tab => {
+    document.querySelectorAll('.sidebar-tab, .tab').forEach(tab => {
         tab.classList.remove('active');
         if (tab.dataset.tab === 'output') {
             tab.classList.add('active');

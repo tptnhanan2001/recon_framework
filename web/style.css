@@ -172,10 +172,72 @@ code {
 
 /* Dashboard Styles */
 .dashboard {
-    padding: 2rem;
-    max-width: 1600px;
-    margin: 0 auto;
+    padding: 0;
+    max-width: 100%;
+    margin: 0;
     min-height: 100vh;
+}
+
+/* Dashboard Layout */
+.dashboard-layout {
+    display: flex;
+    min-height: 100vh;
+}
+
+/* Sidebar */
+.sidebar {
+    width: 240px;
+    background-color: var(--bg-secondary);
+    border-right: 1px solid var(--border-color);
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    z-index: 100;
+    padding-top: 1rem;
+}
+
+.sidebar-tabs {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0 0.5rem;
+}
+
+.sidebar-tab {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    padding: 0.875rem 1rem;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 500;
+    text-align: left;
+    transition: all 0.2s;
+    position: relative;
+    border-left: 3px solid transparent;
+    border-radius: 4px;
+}
+
+.sidebar-tab:hover {
+    color: var(--text-primary);
+    background-color: var(--bg-tertiary);
+}
+
+.sidebar-tab.active {
+    color: var(--text-primary);
+    background-color: var(--bg-tertiary);
+    border-left-color: var(--accent-red);
+    font-weight: 600;
+}
+
+/* Main Content */
+.main-content {
+    flex: 1;
+    margin-left: 240px;
+    padding: 2rem;
+    max-width: calc(100% - 240px);
 }
 
 .header {
@@ -250,36 +312,13 @@ code {
     }
 }
 
-/* Tabs */
+/* Tabs - Legacy styles (kept for compatibility) */
 .tabs {
-    display: flex;
-    gap: 0.5rem;
-    border-bottom: 2px solid var(--border-color);
-    margin-top: 1rem;
+    display: none; /* Hidden - using sidebar now */
 }
 
 .tab {
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    padding: 0.875rem 1.75rem;
-    cursor: pointer;
-    font-size: 1rem;
-    font-weight: 500;
-    border-bottom: 3px solid transparent;
-    margin-bottom: -2px;
-    transition: all 0.2s;
-    position: relative;
-}
-
-.tab:hover {
-    color: var(--text-primary);
-}
-
-.tab.active {
-    color: var(--text-primary);
-    border-bottom-color: var(--accent-red);
-    font-weight: 600;
+    display: none; /* Hidden - using sidebar-tab now */
 }
 
 .tab-content {
@@ -293,7 +332,7 @@ code {
 /* Container Layout */
 .container {
     display: grid;
-    grid-template-columns: 1.3fr 1fr;
+    grid-template-columns: 1fr 1.3fr;
     gap: 3rem;
     margin-top: 1rem;
     align-items: start;
@@ -303,7 +342,7 @@ code {
 .container::before {
     content: '';
     position: absolute;
-    left: calc(1.3fr / (1.3fr + 1fr) * 100%);
+    left: calc(1fr / (1fr + 1.3fr) * 100%);
     top: 0;
     bottom: 0;
     width: 1px;
@@ -1482,6 +1521,21 @@ mark.search-highlight {
     
     .tab {
         padding: 0.5rem 1rem;
+        font-size: 0.9rem;
+    }
+    
+    .sidebar {
+        width: 200px;
+    }
+    
+    .main-content {
+        margin-left: 200px;
+        padding: 1rem;
+        max-width: calc(100% - 200px);
+    }
+    
+    .sidebar-tab {
+        padding: 0.75rem 0.875rem;
         font-size: 0.9rem;
     }
 }

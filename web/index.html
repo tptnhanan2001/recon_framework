@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Recon Tool Dashboard</title>
+    <title>🔐 Attack Surface Management</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <!-- Login Modal -->
     <div id="loginModal" class="modal">
         <div class="modal-content">
-            <h1>🔐 Recon Tool Dashboard</h1>
+            <h1>Attack Surface Management</h1>
             <h2>Authentication required</h2>
             <form id="loginForm">
                 <input type="password" id="passwordInput" placeholder="Password" required>
@@ -22,36 +22,76 @@
 
     <!-- Main Dashboard -->
     <div id="dashboard" class="dashboard hidden" style="display: none !important;">
-        <!-- Header -->
-        <header class="header">
-            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-                <div>
-                    <h1>Recon Tool Dashboard</h1>
-                    <p class="subtitle">Visualize and orchestrate recon runs backed by recon_tool.py.</p>
-                </div>
-                <button id="logoutBtn" class="btn btn-secondary" style="margin-left: auto;" onclick="handleLogout()">🚪 Logout</button>
-            </div>
-            <!-- Scan Status Banner -->
-            <div id="scanStatusBanner" class="scan-status-banner hidden">
-                <div class="banner-content">
-                    <span class="banner-spinner"></span>
-                    <span class="banner-text">🔄 Scan in progress... Check "Scan Logs" tab for real-time output</span>
-                </div>
-            </div>
-            <div class="tabs">
-                <button class="tab active" data-tab="dashboard">Dashboard</button>
-                <button class="tab" data-tab="targets">📁 Target Management</button>
-                <button class="tab" data-tab="logs">📋 Scan Logs</button>
-                <button class="tab" data-tab="output">📄 Output Viewer</button>
-                <button class="tab" data-tab="config">⚙️ Config</button>
-            </div>
-        </header>
+        <div class="dashboard-layout">
+            <!-- Sidebar with Tabs -->
+            <aside class="sidebar">
+                <nav class="sidebar-tabs">
+                    <button class="sidebar-tab active" data-tab="dashboard">Dashboard</button>
+                    <button class="sidebar-tab" data-tab="targets">📁 Target Management</button>
+                    <button class="sidebar-tab" data-tab="output">📄 Output Viewer</button>
+                    <button class="sidebar-tab" data-tab="config">⚙️ Config</button>
+                </nav>
+            </aside>
+
+            <!-- Main Content -->
+            <main class="main-content">
+                <!-- Header -->
+                <header class="header">
+                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                        <div>
+                            <h1>Attack Surface Management</h1>
+                            <p class="subtitle">Visualize and orchestrate recon runs backed by recon_tool.py.</p>
+                        </div>
+                        <button id="logoutBtn" class="btn btn-secondary" style="margin-left: auto;" onclick="handleLogout()">🚪 Logout</button>
+                    </div>
+                    <!-- Scan Status Banner -->
+                    <div id="scanStatusBanner" class="scan-status-banner hidden">
+                        <div class="banner-content">
+                            <span class="banner-spinner"></span>
+                            <span class="banner-text">🔄 Scan in progress... Check "Output Viewer" tab for real-time output</span>
+                        </div>
+                    </div>
+                </header>
 
         <!-- Dashboard Tab -->
         <div id="dashboardTab" class="tab-content active">
             <div class="container">
-                <!-- Left Panel -->
+                <!-- Left Panel (Sidebar) -->
                 <div class="left-panel">
+                    <!-- Existing Scans -->
+                    <section class="panel targets-panel">
+                        <div class="panel-header">
+                            <h2>📁 Existing scans</h2>
+                        </div>
+                        <div class="panel-body">
+                            <div id="targetsList">
+                                <div class="info-box">
+                                    <p>No recon results yet.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Divider -->
+                    <div class="section-divider"></div>
+
+                    <!-- Last Run Summary -->
+                    <section class="panel summary-panel">
+                        <div class="panel-header">
+                            <h2>Last run summary</h2>
+                        </div>
+                        <div class="panel-body">
+                            <div id="lastRunSummary">
+                                <div class="info-box">
+                                    <p>No runs yet.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- Right Panel (Main Content) -->
+                <div class="right-panel">
                     <!-- Start New Scan -->
                     <section class="panel scan-panel">
                         <div class="panel-header">
@@ -133,41 +173,6 @@
                         </form>
                         </div>
                     </section>
-
-                </div>
-
-                <!-- Right Panel -->
-                <div class="right-panel">
-                    <!-- Existing Scans -->
-                    <section class="panel targets-panel">
-                        <div class="panel-header">
-                            <h2>📁 Existing scans</h2>
-                        </div>
-                        <div class="panel-body">
-                            <div id="targetsList">
-                                <div class="info-box">
-                                    <p>No recon results yet.</p>
-                                </div>
-                            </div>
-                        </div>
-                    </section>
-
-                    <!-- Divider -->
-                    <div class="section-divider"></div>
-
-                    <!-- Last Run Summary -->
-                    <section class="panel summary-panel">
-                        <div class="panel-header">
-                            <h2>Last run summary</h2>
-                        </div>
-                        <div class="panel-body">
-                            <div id="lastRunSummary">
-                                <div class="info-box">
-                                    <p>No runs yet.</p>
-                                </div>
-                            </div>
-                        </div>
-                    </section>
                 </div>
             </div>
         </div>
@@ -223,6 +228,8 @@
                     </div>
                 </div>
             </section>
+        </div>
+            </main>
         </div>
     </div>
 

@@ -77,6 +77,9 @@ class Amass(BaseTool):
         self.logger.info("[Amass] Starting subdomain discovery")
         self.logger.info("=" * 70)
         
+        # Ensure output directory exists before running amass
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
         output_file = self.output_dir / f"amass_{self.base_name}.txt"
         
         # Build amass command

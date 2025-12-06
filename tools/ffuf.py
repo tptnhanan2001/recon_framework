@@ -5,6 +5,8 @@ FFuF Tool - Fast web fuzzer
 from .base import BaseTool
 import os
 import re
+import json
+from pathlib import Path
 
 
 class Ffuf(BaseTool):
@@ -34,6 +36,74 @@ class Ffuf(BaseTool):
             if path and os.path.exists(path):
                 return str(path)
         return None
+    
+    def _format_ffuf_results(self, json_file, text_file):
+        """Convert FFuF JSON output to readable text format"""
+        if not json_file.exists():
+            return False
+        
+        try:
+            with open(json_file, 'r', encoding='utf-8', errors='ignore') as f:
+                data = json.load(f)
+            
+            results = []
+            
+            # Extract results from JSON
+            if isinstance(data, dict):
+                # FFuF JSON format: {"results": [...]}
+                results_list = data.get('results', [])
+            elif isinstance(data, list):
+                # Sometimes it's just a list
+                results_list = data
+            else:
+                return False
+            
+            if not results_list:
+                return False
+            
+            # Format each result - similar to dirsearch format
+            formatted_lines = []
+            for result in results_list:
+                status = result.get('status', 0)
+                length = result.get('length', 0)
+                words = result.get('words', 0)
+                url = result.get('url', '')
+                
+                # Format length with units (KB, MB, B)
+                length_str = self._format_length(length)
+                
+                # Format: [STATUS] [LENGTH] [WORDS] URL
+                # Example: [200] [1.2KB] [45] https://example.com/admin
+                formatted_line = f"[{status:3d}] [{length_str:>8s}] [{words:4d}] {url}"
+                
+                formatted_lines.append((status, length, formatted_line))
+            
+            # Sort by status code, then by length
+            formatted_lines.sort(key=lambda x: (x[0], x[1]))
+            
+            # Write formatted output
+            with open(text_file, 'w', encoding='utf-8') as f:
+                f.write(f"# FFuF Results\n")
+                f.write(f"# Total findings: {len(formatted_lines)}\n")
+                f.write(f"# Source: {json_file.name}\n")
+                f.write(f"# Format: [STATUS] [LENGTH] [WORDS] URL\n")
+                f.write(f"{'='*80}\n\n")
+                for _, _, line in formatted_lines:
+                    f.write(line + "\n")
+            
+            return True
+        except Exception as e:
+            self.logger.warning(f"[FFuF] Error formatting results: {e}")
+            return False
+    
+    def _format_length(self, length):
+        """Format length in bytes to human-readable format"""
+        if length < 1024:
+            return f"{length}B"
+        elif length < 1024 * 1024:
+            return f"{length / 1024:.1f}KB"
+        else:
+            return f"{length / (1024 * 1024):.1f}MB"
     
     def run(self, urls_file):
         """Run FFuF on URLs"""
@@ -109,8 +179,14 @@ class Ffuf(BaseTool):
             success = self.run_command(cmd)
             
             if success or url_output_file.exists():
-                results.append(str(url_output_file))
-                self.logger.info(f"[FFuF] ✓ Results saved to: {url_output_file}")
+                # Create formatted text output
+                text_output_file = url_output_file.with_suffix('.txt')
+                if self._format_ffuf_results(url_output_file, text_output_file):
+                    results.append(str(text_output_file))
+                    self.logger.info(f"[FFuF] ✓ Results saved to: {text_output_file}")
+                else:
+                    results.append(str(url_output_file))
+                    self.logger.info(f"[FFuF] ✓ Results saved to: {url_output_file}")
         
         if results:
             self.logger.info(f"[FFuF] ✓ All scans completed. Results in: {ffuf_dir}")

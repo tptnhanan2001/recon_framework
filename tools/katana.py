@@ -34,7 +34,7 @@ class Katana(BaseTool):
         
         if success:
             self.logger.info(f"[Katana] ✓ Results saved to: {output_file}")
-            self.notify_message(f"✅ Katana Success - {urls_file}")
+            self.notify_message(f"Completed Katana scanning")
             return str(output_file)
         else:
             self.logger.warning("[Katana] Error occurred")

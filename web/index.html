@@ -43,7 +43,6 @@
                 <button class="tab" data-tab="targets">📁 Target Management</button>
                 <button class="tab" data-tab="logs">📋 Scan Logs</button>
                 <button class="tab" data-tab="output">📄 Output Viewer</button>
-                <button class="tab" data-tab="sniper">🎯 Sn1per</button>
                 <button class="tab" data-tab="config">⚙️ Config</button>
             </div>
         </header>
@@ -206,90 +205,6 @@
             </section>
         </div>
 
-        <!-- Sn1per Tab -->
-        <div id="sniperTab" class="tab-content hidden">
-            <section class="panel scan-panel">
-                <div class="panel-header">
-                    <h2>🎯 Sn1per Scanner</h2>
-                    <div id="sniperScanStatusIndicator" class="scan-status-indicator hidden">
-                        <span class="status-spinner"></span>
-                        <span class="status-text">Scanning...</span>
-                    </div>
-                </div>
-                <div class="panel-body">
-                    <form id="sniperScanForm">
-                        <!-- Target Type -->
-                        <div class="radio-group">
-                            <label class="radio-label">
-                                <input type="radio" name="sniperTargetType" value="domain" checked>
-                                <span>Single Domain</span>
-                            </label>
-                            <label class="radio-label">
-                                <input type="radio" name="sniperTargetType" value="domainList">
-                                <span>Domain List</span>
-                            </label>
-                        </div>
-
-                        <!-- Domain Input -->
-                        <div id="sniperDomainInput" class="input-group">
-                            <label>Domain or IP</label>
-                            <input type="text" id="sniperDomainField" placeholder="example.com or 192.168.1.1">
-                        </div>
-
-                        <!-- Domain List Upload -->
-                        <div id="sniperDomainListInput" class="input-group hidden">
-                            <label>📤 Upload Domain List</label>
-                            <div class="upload-area" id="sniperUploadArea">
-                                <input type="file" id="sniperFileInput" accept=".txt" hidden>
-                                <div class="upload-content">
-                                    <p>📝 Upload a text file (.txt) containing one domain per line</p>
-                                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('sniperFileInput').click()">
-                                        Choose file to upload
-                                    </button>
-                                </div>
-                            </div>
-                            <div id="sniperFilePreview" class="file-preview hidden"></div>
-                        </div>
-
-                        <!-- Config Selection -->
-                        <div class="input-group">
-                            <label>Config Mode</label>
-                            <select id="sniperConfig" class="form-select">
-                                <option value="/usr/share/sniper/conf/bug_bounty_max_javascript_files" selected>Bug Bounty Max JS Files (250 files)</option>
-                                <option value="/usr/share/sniper/conf/bug_bounty_full_brute">Bug Bounty Full Brute</option>
-                                <option value="">Default Config</option>
-                            </select>
-                            <small>Enhanced JavaScript analysis for modern web applications</small>
-                        </div>
-
-                        <!-- Command Preview -->
-                        <div class="command-preview">
-                            <label class="section-label">Sn1per Command Preview</label>
-                            <div class="command-display" id="sniperCommandPreview">
-                                <code id="sniperCommandText">sniper -c /usr/share/sniper/conf/bug_bounty_max_javascript_files -t example.com -w sn1per-fullscan-example_com</code>
-                            </div>
-                        </div>
-
-                        <!-- Action Buttons -->
-                        <div class="action-buttons">
-                            <button type="submit" class="btn btn-primary" id="runSniperScanBtn">🚀 Start Sn1per Scan</button>
-                        </div>
-                    </form>
-
-                    <!-- Sn1per Results -->
-                    <div class="panel-header" style="margin-top: 30px;">
-                        <h2>📊 Sn1per Scan Results</h2>
-                        <button class="btn btn-secondary btn-sm" onclick="loadSniperResults()">🔄 Refresh</button>
-                    </div>
-                    <div id="sniperResultsList" class="panel-body">
-                        <div class="info-box">
-                            <p>No Sn1per results yet.</p>
-                        </div>
-                    </div>
-                </div>
-            </section>
-        </div>
-
         <!-- Config Tab -->
         <div id="configTab" class="tab-content hidden">
             <section class="panel config-panel">
@@ -340,6 +255,30 @@
                                 <button class="filter-chip active severity-low" data-severity-filter="low">Low</button>
                                 <button class="filter-chip active severity-info" data-severity-filter="info">Info</button>
                             </div>
+                        </div>
+                        <div class="filter-row" id="statusCodeFilterRow">
+                            <label class="filter-label">Status Code:</label>
+                            <div class="filter-chips" id="statusCodeFilters">
+                                <button class="filter-chip active" data-status-code="all">All</button>
+                                <button class="filter-chip" data-status-code="200">200</button>
+                                <button class="filter-chip" data-status-code="301">301</button>
+                                <button class="filter-chip" data-status-code="302">302</button>
+                                <button class="filter-chip" data-status-code="403">403</button>
+                                <button class="filter-chip" data-status-code="404">404</button>
+                                <button class="filter-chip" data-status-code="500">500</button>
+                                <button class="filter-chip" data-status-code="503">503</button>
+                            </div>
+                            <label class="filter-label" style="margin-left: 20px;">Length:</label>
+                            <div class="filter-length-inputs">
+                                <input type="number" id="minLengthInput" placeholder="Min" min="0" style="width: 100px; margin-right: 10px;">
+                                <span>-</span>
+                                <input type="number" id="maxLengthInput" placeholder="Max" min="0" style="width: 100px; margin-left: 10px;">
+                                <button class="btn btn-secondary btn-sm" id="clearLengthFilter" style="margin-left: 10px;">Clear</button>
+                            </div>
+                            <label class="filter-label" style="margin-left: 20px;">
+                                <input type="checkbox" id="hideDuplicatesCheckbox" style="margin-right: 5px;">
+                                Hide Duplicate Lengths
+                            </label>
                         </div>
                         <div class="filter-row">
                             <div class="filter-search">

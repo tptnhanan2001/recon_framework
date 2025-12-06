@@ -49,10 +49,13 @@ from tools.httpx import Httpx
 from tools.dirsearch import Dirsearch
 from tools.katana import Katana
 from tools.urlfinder import Urlfinder
+from tools.ffuf import Ffuf
 from tools.waybackurls import Waybackurls
 from tools.waymore import Waymore
 from tools.cloudenum import Cloudenum
 from tools.nuclei import Nuclei
+from tools.naabu import Naabu
+from tools.arjun import Arjun
 from settings import DEFAULT_TOOL_CONFIG
 from report_generator import ReportGenerator
 
@@ -142,6 +145,12 @@ class ReconOrchestrator:
         )
         self.katana = Katana(self.output_dir, self.base_name, self.logger)
         self.urlfinder = Urlfinder(self.output_dir, self.base_name, self.logger)
+        self.ffuf = Ffuf(
+            self.output_dir,
+            self.base_name,
+            self.logger,
+            config=self.tool_config.get("ffuf")
+        )
         self.waybackurls = Waybackurls(self.output_dir, self.base_name, self.logger)
         self.waymore = Waymore(
             self.output_dir,
@@ -151,6 +160,18 @@ class ReconOrchestrator:
         )
         self.cloudenum = Cloudenum(self.output_dir, self.base_name, self.logger)
         self.nuclei = Nuclei(self.output_dir, self.base_name, self.logger)
+        self.naabu = Naabu(
+            self.output_dir,
+            self.base_name,
+            self.logger,
+            config=self.tool_config.get("naabu")
+        )
+        self.arjun = Arjun(
+            self.output_dir,
+            self.base_name,
+            self.logger,
+            config=self.tool_config.get("arjun")
+        )
     
     def setup_logging(self):
         """Setup logging to file and console with colored output"""
@@ -381,6 +402,168 @@ class ReconOrchestrator:
             return str(urls_file)
         return None
     
+    def collect_endpoints(self):
+        """Collect endpoints from content discovery tools (katana, dirsearch, wayback, etc.)"""
+        endpoints_file = self.output_dir / f"endpoints_{self.base_name}.txt"
+        endpoints = set()
+        
+        # Extensions to exclude (static files that don't need parameter discovery)
+        excluded_extensions = {
+            '.js', '.jsx', '.json', '.jsonp',
+            '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.bmp',
+            '.css', '.scss', '.sass', '.less',
+            '.ttf', '.otf', '.woff', '.woff2', '.eot',
+            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+            '.zip', '.tar', '.gz', '.rar', '.7z',
+            '.mp4', '.mp3', '.avi', '.mov', '.wmv', '.flv',
+            '.xml', '.rss', '.atom',
+            '.woff', '.woff2', '.eot', '.ttf', '.otf',
+            '.map', '.min.js', '.min.css',
+            '.swf', '.fla'
+        }
+        
+        def should_include_endpoint(url):
+            """Check if endpoint should be included (exclude static files)"""
+            url_lower = url.lower()
+            # Check if URL ends with excluded extension
+            for ext in excluded_extensions:
+                if url_lower.endswith(ext):
+                    return False
+            # Also check for common static file patterns
+            static_patterns = [
+                '/static/', '/assets/', '/images/', '/img/', '/css/', '/js/',
+                '/fonts/', '/media/', '/uploads/', '/downloads/'
+            ]
+            for pattern in static_patterns:
+                if pattern in url_lower:
+                    # Allow if it's a directory (no extension) or has query params
+                    if '?' in url_lower or url_lower.endswith('/'):
+                        continue
+                    # Check if it has an extension
+                    path_part = url_lower.split('?')[0].split('#')[0]
+                    if any(path_part.endswith(ext) for ext in excluded_extensions):
+                        return False
+            return True
+        
+        # Collect from Katana output
+        katana_file = self.output_dir / f"katana_{self.base_name}.txt"
+        if katana_file.exists():
+            with open(katana_file, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and (line.startswith('http://') or line.startswith('https://')):
+                        if should_include_endpoint(line):
+                            endpoints.add(line)
+        
+        # Collect from Dirsearch output
+        dirsearch_file = self.output_dir / f"dirsearch_{self.base_name}.txt"
+        if dirsearch_file.exists():
+            # First, get base URLs from urls_file to construct full URLs
+            base_urls = set()
+            urls_file = self.output_dir / f"urls_{self.base_name}.txt"
+            if urls_file.exists():
+                with open(urls_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and (line.startswith('http://') or line.startswith('https://')):
+                            base_urls.add(line.rstrip('/'))
+            
+            with open(dirsearch_file, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    # Dirsearch format examples:
+                    # [16:03:12] 200 - 951B - /.idea/
+                    # [16:03:12] 301 - 169B - /.idea -> http://testphp.vulnweb.com/.idea/
+                    # Extract URL from line
+                    if '->' in line:
+                        # Has redirect, extract target URL
+                        redirect_part = line.split('->', 1)[1].strip()
+                        if redirect_part.startswith('http://') or redirect_part.startswith('https://'):
+                            endpoints.add(redirect_part.split()[0])  # Take first part (URL)
+                    elif line.startswith('http://') or line.startswith('https://'):
+                        endpoints.add(line.split()[0])
+                    else:
+                        # Extract path from format: [timestamp] status - length - path
+                        import re
+                        # Pattern: [timestamp] status - length - path
+                        match = re.search(r'-\s+[^\s]+\s+-\s+(.+)$', line)
+                        if match:
+                            path = match.group(1).strip()
+                            # Remove any trailing parts after path
+                            path = path.split()[0] if ' ' in path else path
+                            
+                            if path.startswith('/'):
+                                # Construct full URL by combining with base URLs
+                                for base_url in base_urls:
+                                    full_url = base_url + path
+                                    if should_include_endpoint(full_url):
+                                        endpoints.add(full_url)
+                            elif path.startswith('http://') or path.startswith('https://'):
+                                if should_include_endpoint(path):
+                                    endpoints.add(path)
+        
+        # Collect from URLFinder output
+        urlfinder_file = self.output_dir / f"urlfinder_{self.base_name}.txt"
+        if urlfinder_file.exists():
+            with open(urlfinder_file, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and (line.startswith('http://') or line.startswith('https://')):
+                        if should_include_endpoint(line):
+                            endpoints.add(line)
+        
+        # Collect from Waybackurls output
+        wayback_file = self.output_dir / f"waybackurls_{self.base_name}.txt"
+        if wayback_file.exists():
+            with open(wayback_file, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and (line.startswith('http://') or line.startswith('https://')):
+                        if should_include_endpoint(line):
+                            endpoints.add(line)
+        
+        # Collect from Waymore output
+        waymore_dir = self.output_dir / "waymore"
+        if waymore_dir.exists():
+            for waymore_file in waymore_dir.glob(f"waymore_*.txt"):
+                with open(waymore_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and (line.startswith('http://') or line.startswith('https://')):
+                            if should_include_endpoint(line):
+                                endpoints.add(line)
+        
+        # Collect from FFuF output (JSON format - extract URLs)
+        ffuf_dir = self.output_dir / "ffuf"
+        if ffuf_dir.exists():
+            import json
+            for ffuf_file in ffuf_dir.glob(f"ffuf_*.json"):
+                try:
+                    with open(ffuf_file, 'r', encoding='utf-8', errors='ignore') as f:
+                        data = json.load(f)
+                        if isinstance(data, dict) and 'results' in data:
+                            for result in data.get('results', []):
+                                url = result.get('url') or result.get('input', {}).get('FUZZ')
+                                if url and (url.startswith('http://') or url.startswith('https://')):
+                                    if should_include_endpoint(url):
+                                        endpoints.add(url)
+                except:
+                    pass
+        
+        # Write collected endpoints to file
+        if endpoints:
+            with open(endpoints_file, 'w', encoding='utf-8') as f:
+                for endpoint in sorted(endpoints):
+                    f.write(endpoint + "\n")
+            
+            self.logger.info(f"[Endpoints] Collected {len(endpoints)} unique endpoints from content discovery tools")
+            return str(endpoints_file)
+        
+        return None
+    
     def run(self):
         """
         Execute the complete recon workflow with parallel execution.
@@ -389,9 +572,10 @@ class ReconOrchestrator:
         1. Subdomain Discovery (Subfinder, Amass, Sublist3r) - Sequential
         2. Check Alive Domains (Httpx) - Sequential (depends on Step 1)
            - MUST have subdomain_alive_file before proceeding
+        2.5. Port Scanning: Naabu (on alive subdomains) - Optional
         3. Parallel Execution:
            - Group 1: Nuclei (on alive subdomains)
-           - Group 2: Dirsearch, Katana, URLFinder (on alive URLs) - Parallel
+           - Group 2: Dirsearch, Katana, URLFinder, FFuF, Arjun (on alive URLs) - Parallel
         4. Wayback Tools (Waymore, Waybackurls) - Parallel, then final scan
         """
         # Clear any existing stop flag file from previous scans
@@ -613,6 +797,14 @@ class ReconOrchestrator:
             if alive_subdomain_count > 0:
                 self.logger.info(f"[STEP 2]   - Alive subdomains: {alive_subdomain_count} (out of {subdomain_count} checked)")
         
+        # Step 2.5: Naabu Port Scanning (on alive subdomains)
+        if self.is_tool_enabled("naabu") and subdomain_alive_file and os.path.exists(subdomain_alive_file):
+            if not self.is_stopped():
+                self.logger.info("\n" + "=" * 70)
+                self.logger.info("[STEP 2.5] Port Scanning with Naabu")
+                self.logger.info("=" * 70)
+                naabu_result = self._run_tool("Naabu", self.naabu.run, subdomain_alive_file)
+        
         # Use alive subdomains for subsequent steps
         if subdomain_alive_file and os.path.exists(subdomain_alive_file):
             self.logger.info(f"[INFO] Using filtered alive subdomains: {subdomain_alive_file}")
@@ -649,7 +841,7 @@ class ReconOrchestrator:
         self.logger.info(f"[DEPENDENCY] Requires: Step 2 (Subdomain alive file must exist)")
         self.logger.info("[INFO] Running tools in parallel groups:")
         self.logger.info("[INFO]   Group 1: Nuclei (on alive subdomains)")
-        self.logger.info("[INFO]   Group 2: Dirsearch, Katana, URLFinder (on alive URLs)")
+        self.logger.info("[INFO]   Group 2: Dirsearch, Katana, URLFinder, FFuF, Arjun (on alive URLs)")
         self.logger.info("=" * 70)
         
         step3_start = time.time()
@@ -667,12 +859,13 @@ class ReconOrchestrator:
         else:
             self.logger.info("[Nuclei] Tool is disabled in configuration. Skipping.")
         
-        # Group 2: Content Discovery Tools (dirsearch, katana, urlfinder) - require urls_file
+        # Group 2: Content Discovery Tools (dirsearch, katana, urlfinder, ffuf) - require urls_file
         if urls_file:
             content_discovery_tools = [
                 ("Dirsearch", "dirsearch", self.dirsearch.run, urls_file),
                 ("Katana", "katana", self.katana.run, urls_file),
                 ("URLFinder", "urlfinder", self.urlfinder.run, urls_file),
+                ("FFuF", "ffuf", self.ffuf.run, urls_file),
             ]
             
             for display_name, tool_key, tool_func, *args in content_discovery_tools:
@@ -794,6 +987,20 @@ class ReconOrchestrator:
         success_color = Fore.GREEN + Style.BRIGHT if COLORAMA_AVAILABLE else ""
         reset_color = Style.RESET_ALL if COLORAMA_AVAILABLE else ""
         self.logger.info(f"{success_color}[STEP 4] ✓ Completed in {step4_elapsed:.2f}s{reset_color}")
+        
+        # Step 4.5: Arjun Parameter Discovery (on collected endpoints)
+        if self.is_tool_enabled("arjun") and not self.is_stopped():
+            self.logger.info("\n" + "=" * 70)
+            self.logger.info("[STEP 4.5] Parameter Discovery with Arjun")
+            self.logger.info("[INFO] Collecting endpoints from content discovery tools...")
+            self.logger.info("=" * 70)
+            
+            endpoints_file = self.collect_endpoints()
+            if endpoints_file and os.path.exists(endpoints_file):
+                self.logger.info(f"[Arjun] Found endpoints file: {endpoints_file}")
+                arjun_result = self._run_tool("Arjun", self.arjun.run, endpoints_file)
+            else:
+                self.logger.warning("[Arjun] No endpoints collected - skipping parameter discovery")
         
         elapsed_time = time.time() - start_time
         

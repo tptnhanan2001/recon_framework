@@ -17,6 +17,9 @@ MODE_PRESETS = {
             "dirsearch": False,
             "katana": False,
             "urlfinder": False,
+            "ffuf": False,
+            "naabu": False,
+            "arjun": False,
             "waybackurls": False,
             "waymore": False,
             "cloudenum": False,
@@ -33,6 +36,9 @@ MODE_PRESETS = {
             "dirsearch": False,
             "katana": False,
             "urlfinder": False,
+            "ffuf": False,
+            "naabu": False,
+            "arjun": False,
             "waybackurls": False,
             "waymore": False,
             "cloudenum": False,
@@ -49,6 +55,9 @@ MODE_PRESETS = {
             "dirsearch": True,
             "katana": True,
             "urlfinder": True,
+            "ffuf": True,
+            "naabu": True,
+            "arjun": True,
             "waybackurls": True,
             "waymore": True,
             "cloudenum": True,
@@ -83,6 +92,9 @@ DEFAULT_TOOL_CONFIG = {
         "dirsearch": True,
         "katana": True,
         "urlfinder": True,
+        "ffuf": True,
+        "naabu": True,
+        "arjun": True,
         "waybackurls": True,
         "waymore": True,
         "cloudenum": True,
@@ -96,6 +108,37 @@ DEFAULT_TOOL_CONFIG = {
         "max_rate": 30,
         "extensions": "all",
         "match_codes": "200,301,302,403,405,500",
+    },
+    "ffuf": {
+        "enabled": True,  # Can be overridden by tools_enabled["ffuf"]
+        "wordlist": None,
+        "wordlist_candidates": DEFAULT_WORDLIST_CANDIDATES,
+        "threads": 50,
+        "match_codes": "200,204,301,302,307,401,403,500",
+        "recursion": False,
+        "recursion_depth": 1,
+        "timeout": 10,
+        "rate": None,  # Optional: rate limit (requests per second)
+        "extensions": None,  # Optional: comma-separated extensions (e.g., "php,html,js")
+    },
+    "naabu": {
+        "enabled": True,  # Can be overridden by tools_enabled["naabu"]
+        "ports": "80,443,8080,8443,3000,8000,8888,9000",  # Comma-separated port list
+        "top_ports": None,  # Optional: scan top N ports (e.g., 100, 1000)
+        "exclude_ports": None,  # Optional: comma-separated ports to exclude
+        "rate": 1000,  # Packets per second
+        "retries": 2,  # Number of retries
+        "verify": False,  # Verify port status
+    },
+    "arjun": {
+        "enabled": True,  # Can be overridden by tools_enabled["arjun"]
+        "wordlist": None,
+        "wordlist_candidates": DEFAULT_WORDLIST_CANDIDATES,
+        "method": "GET",  # HTTP method: GET, POST, PUT, etc.
+        "threads": 10,
+        "timeout": 10,  # Request timeout in seconds
+        "include": None,  # Optional: comma-separated parameters to include
+        "exclude": None,  # Optional: comma-separated parameters to exclude
     },
     "waymore": {
         "enabled": True,  # Can be overridden by tools_enabled["waymore"]

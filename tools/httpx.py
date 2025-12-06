@@ -71,7 +71,7 @@ class Httpx(BaseTool):
         
         if success:
             self.logger.info(f"[Httpx] ✓ Alive domains saved to: {output_file}")
-            self.notify_message(f"✅ Httpx Success - {subdomain_file}")
+            self.notify_message(f"Completed Httpx scanning")
             
             # Extract subdomains from alive output
             subdomain_alive_file = self.extract_alive_subdomains(output_file)

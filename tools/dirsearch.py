@@ -59,11 +59,15 @@ class Dirsearch(BaseTool):
         
         success = self.run_command(cmd)
         
-        if success:
+        # Check if output file exists even if command returned error
+        # (dirsearch may succeed despite dependency warnings)
+        output_exists = output_file.exists() and output_file.stat().st_size > 0
+        
+        if success or output_exists:
             self.logger.info(f"[Dirsearch] ✓ Results saved to: {output_file}")
-            self.notify_message(f"✅ Dirsearch Success - {urls_file}")
+            self.notify_message(f"Completed dirsearch scanning")
             return str(output_file)
         else:
-            self.logger.warning("[Dirsearch] Error occurred")
-            return str(output_file) if os.path.exists(output_file) else None
+            self.logger.warning("[Dirsearch] Error occurred - no output file created")
+            return None
 

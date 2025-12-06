@@ -76,7 +76,7 @@ class Nuclei(BaseTool):
         if success:
             results.append(str(nuclei_subdomain_file))
             self.logger.info(f"[Nuclei] ✓ Alive subdomain scan saved to: {nuclei_subdomain_file}")
-            self.notify_message(f"✅ Nuclei Subdomain Success - {targets_file}")
+            self.notify_message(f"Completed Nuclei Subdomain scanning")
         
         # Scan with exposure templates using URL list derived from alive subdomains
         self.logger.info("[Nuclei] Scanning exposures on alive subdomains...")
@@ -93,7 +93,7 @@ class Nuclei(BaseTool):
             if success:
                 results.append(str(nuclei_exposure_file))
                 self.logger.info(f"[Nuclei] ✓ Exposure scan saved to: {nuclei_exposure_file}")
-                self.notify_message(f"✅ Nuclei Exposure Success - {urls_file}")
+                self.notify_message(f"Completed Nuclei Exposure scanning")
         
         # Scan with custom wordlist (if provided)
         if wordlist_file and self.check_input_file(wordlist_file):
@@ -111,7 +111,7 @@ class Nuclei(BaseTool):
             if success:
                 results.append(str(nuclei_wordlist_file))
                 self.logger.info(f"[Nuclei] ✓ Wordlist scan saved to: {nuclei_wordlist_file}")
-                self.notify_message(f"✅ Nuclei Wordlist Success - {wordlist_file}")
+                self.notify_message(f"Completed Nuclei Wordlist scanning")
         
         self.logger.info(f"[Nuclei] ✓ All scans completed. Results in: {nuclei_dir}")
         return str(nuclei_dir)

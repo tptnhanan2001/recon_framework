@@ -201,7 +201,7 @@ class Amass(BaseTool):
             if cleaned and self.check_input_file(output_file):
                 self.logger.info("[Amass] Success")
                 self.logger.info(f"[Amass] ✓ Subdomains collected: {output_file}")
-                self.notify_message(f"✅ Amass Success - {domain or domain_list}")
+                self.notify_message(f"Completed Amass scanning")
                 return str(output_file)
             else:
                 self.logger.warning("[Amass] No valid subdomains found after cleaning")

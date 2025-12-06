@@ -29,7 +29,11 @@ const nucleiFilterState = {
     searchTerm: ''
 };
 const fileFilterState = {
-    searchTerm: ''
+    searchTerm: '',
+    statusCodes: [],  // Array of selected status codes (e.g., ['200', '301'])
+    minLength: null,  // Minimum response length
+    maxLength: null,  // Maximum response length
+    hideDuplicates: false  // Hide lines with duplicate length
 };
 
 // Helper function to handle API responses and check for auth errors
@@ -146,20 +150,6 @@ function setupEventListeners() {
     // Scan Form
     document.getElementById('scanForm').addEventListener('submit', handleScanSubmit);
     
-    // Sn1per Form
-    document.getElementById('sniperScanForm').addEventListener('submit', handleSniperScanSubmit);
-    
-    // Sn1per target type change
-    document.querySelectorAll('input[name="sniperTargetType"]').forEach(radio => {
-        radio.addEventListener('change', handleSniperTargetTypeChange);
-    });
-    
-    // Sn1per file upload
-    document.getElementById('sniperFileInput').addEventListener('change', handleSniperFileUpload);
-    
-    // Sn1per domain field update
-    document.getElementById('sniperDomainField').addEventListener('input', updateSniperCommandPreview);
-    document.getElementById('sniperConfig').addEventListener('change', updateSniperCommandPreview);
     
     // Tabs
     document.querySelectorAll('.tab').forEach(tab => {
@@ -690,15 +680,6 @@ function handleTabSwitch(e) {
             closeFileViewer();
         }
         renderOutputViewer();
-    } else if (tabName === 'sniper') {
-        document.getElementById('sniperTab').classList.remove('hidden');
-        document.getElementById('sniperTab').classList.add('active');
-        // Close overlay if open when switching tabs
-        if (!document.getElementById('fileViewerOverlay').classList.contains('hidden')) {
-            closeFileViewer();
-        }
-        loadSniperResults();
-        updateSniperCommandPreview();
     } else if (tabName === 'config') {
         document.getElementById('configTab').classList.remove('hidden');
         document.getElementById('configTab').classList.add('active');
@@ -1462,6 +1443,13 @@ function showFileInOverlay(filePath, content, size, targetPath) {
         currentNucleiLines = null;
         currentFileLines = splitFileLines(content || '');
         fileFilterState.searchTerm = '';
+        fileFilterState.statusCodes = [];
+        fileFilterState.minLength = null;
+        fileFilterState.maxLength = null;
+        fileFilterState.hideDuplicates = false;
+        resetFileFiltersUI();
+        // Initialize filters if not already done
+        ensureFileFiltersInitialized();
         renderFileFilteredContent();
         if (severityRow) {
             severityRow.classList.add('hidden');
@@ -1748,14 +1736,97 @@ function handleGlobalSearchInput(value) {
     }
 }
 
+function parseLength(lengthStr) {
+    if (!lengthStr) return null;
+    
+    // Remove spaces and convert to lowercase
+    lengthStr = lengthStr.trim().toLowerCase();
+    
+    // Handle formats like "12KB", "169B", "1.5MB", etc.
+    const kbMatch = lengthStr.match(/([\d.]+)\s*kb?/);
+    if (kbMatch) {
+        return Math.round(parseFloat(kbMatch[1]) * 1024);
+    }
+    
+    const mbMatch = lengthStr.match(/([\d.]+)\s*mb?/);
+    if (mbMatch) {
+        return Math.round(parseFloat(mbMatch[1]) * 1024 * 1024);
+    }
+    
+    const gbMatch = lengthStr.match(/([\d.]+)\s*gb?/);
+    if (gbMatch) {
+        return Math.round(parseFloat(gbMatch[1]) * 1024 * 1024 * 1024);
+    }
+    
+    // Handle plain bytes (B suffix or just number)
+    const bMatch = lengthStr.match(/([\d.]+)\s*b$/);
+    if (bMatch) {
+        return parseInt(bMatch[1], 10);
+    }
+    
+    // Try to parse as plain number
+    const numMatch = lengthStr.match(/^(\d+)$/);
+    if (numMatch) {
+        const num = parseInt(numMatch[1], 10);
+        if (num >= 0 && num <= 100000000) {
+            return num;
+        }
+    }
+    
+    return null;
+}
+
 function splitFileLines(content) {
     const lines = content.split(/\r?\n/);
-    return lines.map((line, index) => ({
-        raw: line,
-        lower: line.toLowerCase(),
-        lineNumber: index + 1,
-        html: `<span class="file-line"><span class="file-line-number">${index + 1}</span><span class="file-line-text">${escapeHtml(line || '') || '&nbsp;'}</span></span>`
-    }));
+    return lines.map((line, index) => {
+        // Parse status code and length from common formats
+        const statusMatch = line.match(/\b(?:HTTP\/\d\.\d\s+)?(\d{3})\b/);
+        const statusCode = statusMatch ? statusMatch[1] : null;
+        
+        // Try to extract length from various formats:
+        // - dirsearch: "[16:03:12] 200 -   12KB - /.idea/workspace.xml"
+        // - "200 [1234]" (dirsearch format)
+        // - "200 1234" (simple format)
+        // - "Status: 200, Length: 1234" (verbose format)
+        // - httpx format: "https://example.com [200] [1234]"
+        let length = null;
+        let lengthStr = null;
+        
+        // Pattern for dirsearch format: "200 -   12KB -" or "200 -   169B -"
+        const dirsearchPattern = /\d{3}\s*-\s*([\d.]+\s*(?:KB?|MB?|GB?|B))\s*-/i;
+        const dirsearchMatch = line.match(dirsearchPattern);
+        if (dirsearchMatch) {
+            lengthStr = dirsearchMatch[1];
+            length = parseLength(lengthStr);
+        } else {
+            // Try other patterns
+            const lengthPatterns = [
+                /\[(\d+)\]\s*$/,  // [1234] at end
+                /length[:\s]+([\d.]+(?:\s*(?:KB?|MB?|GB?|B))?)/i,
+                /size[:\s]+([\d.]+(?:\s*(?:KB?|MB?|GB?|B))?)/i,
+                /\b(\d{4,})\b/   // 4+ digit number (likely length)
+            ];
+            
+            for (const pattern of lengthPatterns) {
+                const match = line.match(pattern);
+                if (match) {
+                    lengthStr = match[1];
+                    length = parseLength(lengthStr);
+                    if (length !== null) break;
+                }
+            }
+        }
+        
+        return {
+            raw: line,
+            lower: line.toLowerCase(),
+            lineNumber: index + 1,
+            statusCode: statusCode,
+            length: length,
+            lengthStr: lengthStr,  // Store original length string for display
+            html: `<span class="file-line"><span class="file-line-number">${index + 1}</span><span class="file-line-text">${escapeHtml(line || '') || '&nbsp;'}</span></span>`
+        };
+    });
 }
 
 function highlightSearchTerm(text, searchTerm) {
@@ -1810,8 +1881,51 @@ function renderFileFilteredContent() {
     const searchTerm = fileFilterState.searchTerm.trim().toLowerCase();
     let filtered = currentFileLines;
     
+    // Apply search filter
     if (searchTerm) {
-        filtered = currentFileLines.filter((line) => line.lower.includes(searchTerm));
+        filtered = filtered.filter((line) => line.lower.includes(searchTerm));
+    }
+    
+    // Apply status code filter
+    if (fileFilterState.statusCodes.length > 0) {
+        filtered = filtered.filter((line) => {
+            if (!line.statusCode) return false;
+            return fileFilterState.statusCodes.includes(line.statusCode);
+        });
+    }
+    
+    // Apply length filters
+    if (fileFilterState.minLength !== null && fileFilterState.minLength !== '') {
+        const minLen = parseInt(fileFilterState.minLength, 10);
+        if (!isNaN(minLen)) {
+            filtered = filtered.filter((line) => {
+                if (line.length === null) return false;
+                return line.length >= minLen;
+            });
+        }
+    }
+    
+    if (fileFilterState.maxLength !== null && fileFilterState.maxLength !== '') {
+        const maxLen = parseInt(fileFilterState.maxLength, 10);
+        if (!isNaN(maxLen)) {
+            filtered = filtered.filter((line) => {
+                if (line.length === null) return false;
+                return line.length <= maxLen;
+            });
+        }
+    }
+    
+    // Apply hide duplicates filter
+    if (fileFilterState.hideDuplicates) {
+        const seenLengths = new Set();
+        filtered = filtered.filter((line) => {
+            if (line.length === null) return true;  // Keep lines without length
+            if (seenLengths.has(line.length)) {
+                return false;  // Hide duplicate
+            }
+            seenLengths.add(line.length);
+            return true;  // Show first occurrence
+        });
     }
     
     if (filtered.length === 0) {
@@ -1829,7 +1943,10 @@ function renderFileFilteredContent() {
         }
     }
     
-    contentEl.classList.toggle('filtered-output', !!searchTerm);
+    const hasAnyFilter = searchTerm || fileFilterState.statusCodes.length > 0 || 
+                        fileFilterState.minLength !== null || fileFilterState.maxLength !== null ||
+                        fileFilterState.hideDuplicates;
+    contentEl.classList.toggle('filtered-output', !!hasAnyFilter);
     updateFilterStats(filtered.length, currentFileLines.length);
 }
 
@@ -1837,6 +1954,130 @@ function updateFilterStats(visible, total) {
     const statsEl = document.getElementById('fileFilterStats');
     if (statsEl) {
         statsEl.textContent = `${visible} / ${total} lines`;
+    }
+}
+
+// Initialize file filters UI
+function resetFileFiltersUI() {
+    // Reset status code filters
+    const statusCodeButtons = document.querySelectorAll('[data-status-code]');
+    statusCodeButtons.forEach(btn => {
+        if (btn.dataset.statusCode === 'all') {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+    
+    // Reset length filters
+    const minLengthInput = document.getElementById('minLengthInput');
+    const maxLengthInput = document.getElementById('maxLengthInput');
+    const hideDuplicatesCheckbox = document.getElementById('hideDuplicatesCheckbox');
+    if (minLengthInput) minLengthInput.value = '';
+    if (maxLengthInput) maxLengthInput.value = '';
+    if (hideDuplicatesCheckbox) hideDuplicatesCheckbox.checked = false;
+}
+
+// Track if filters are initialized
+let fileFiltersInitialized = false;
+
+// Initialize file filter event listeners
+function initializeFileFilters() {
+    // Prevent duplicate initialization
+    if (fileFiltersInitialized) {
+        return;
+    }
+    
+    // Status code filter buttons
+    const statusCodeButtons = document.querySelectorAll('[data-status-code]');
+    if (statusCodeButtons.length === 0) {
+        // Filters not in DOM yet, try again later
+        return;
+    }
+    
+    fileFiltersInitialized = true;
+    
+    statusCodeButtons.forEach(button => {
+        // Check if already has listener (simple check)
+        if (button.dataset.hasListener === 'true') {
+            return;
+        }
+        button.dataset.hasListener = 'true';
+        
+        button.addEventListener('click', () => {
+            const statusCode = button.dataset.statusCode;
+            
+            if (statusCode === 'all') {
+                // Reset all status code filters
+                statusCodeButtons.forEach(btn => {
+                    if (btn.dataset.statusCode === 'all') {
+                        btn.classList.add('active');
+                    } else {
+                        btn.classList.remove('active');
+                    }
+                });
+                fileFilterState.statusCodes = [];
+            } else {
+                // Toggle individual status code
+                button.classList.toggle('active');
+                const allButton = document.querySelector('[data-status-code="all"]');
+                if (allButton) allButton.classList.remove('active');
+                
+                // Update status codes array
+                fileFilterState.statusCodes = Array.from(
+                    document.querySelectorAll('[data-status-code].active:not([data-status-code="all"])')
+                ).map(btn => btn.dataset.statusCode);
+            }
+            
+            renderFileFilteredContent();
+        });
+    });
+    
+    // Length filter inputs
+    const minLengthInput = document.getElementById('minLengthInput');
+    const maxLengthInput = document.getElementById('maxLengthInput');
+    const clearLengthFilter = document.getElementById('clearLengthFilter');
+    
+    const updateLengthFilter = () => {
+        fileFilterState.minLength = minLengthInput ? minLengthInput.value : null;
+        fileFilterState.maxLength = maxLengthInput ? maxLengthInput.value : null;
+        renderFileFilteredContent();
+    };
+    
+    if (minLengthInput) {
+        minLengthInput.addEventListener('input', updateLengthFilter);
+        minLengthInput.addEventListener('change', updateLengthFilter);
+    }
+    
+    if (maxLengthInput) {
+        maxLengthInput.addEventListener('input', updateLengthFilter);
+        maxLengthInput.addEventListener('change', updateLengthFilter);
+    }
+    
+    if (clearLengthFilter) {
+        clearLengthFilter.addEventListener('click', () => {
+            if (minLengthInput) minLengthInput.value = '';
+            if (maxLengthInput) maxLengthInput.value = '';
+            fileFilterState.minLength = null;
+            fileFilterState.maxLength = null;
+            renderFileFilteredContent();
+        });
+    }
+    
+    // Hide duplicates checkbox
+    const hideDuplicatesCheckbox = document.getElementById('hideDuplicatesCheckbox');
+    if (hideDuplicatesCheckbox) {
+        hideDuplicatesCheckbox.addEventListener('change', (e) => {
+            fileFilterState.hideDuplicates = e.target.checked;
+            renderFileFilteredContent();
+        });
+    }
+}
+
+// Try to initialize filters when file viewer is shown
+function ensureFileFiltersInitialized() {
+    if (!fileFiltersInitialized) {
+        setTimeout(initializeFileFilters, 100);
     }
 }
 
@@ -2056,211 +2297,5 @@ async function renderConfigEditor() {
 }
 window.viewTargetInOutput = viewTargetInOutput;
 window.confirmDeleteTarget = confirmDeleteTarget;
-window.loadSniperResults = loadSniperResults;
-
-// Sn1per Functions
-function handleSniperTargetTypeChange(e) {
-    const isDomain = e.target.value === 'domain';
-    document.getElementById('sniperDomainInput').classList.toggle('hidden', !isDomain);
-    document.getElementById('sniperDomainListInput').classList.toggle('hidden', isDomain);
-    updateSniperCommandPreview();
-}
-
-function updateSniperCommandPreview() {
-    const targetType = document.querySelector('input[name="sniperTargetType"]:checked')?.value || 'domain';
-    const domain = document.getElementById('sniperDomainField').value || 'example.com';
-    const config = document.getElementById('sniperConfig').value || '';
-    
-    let command = 'sniper';
-    if (config) {
-        command += ` -c ${config}`;
-    }
-    
-    if (targetType === 'domain') {
-        command += ` -t ${domain}`;
-    } else {
-        command += ` -f <domain_list_file>`;
-    }
-    
-    const workspaceName = targetType === 'domain' ? domain.replace(/\./g, '_') : '<workspace>';
-    command += ` -w sn1per-fullscan-${workspaceName}`;
-    
-    document.getElementById('sniperCommandText').textContent = command;
-}
-
-function handleSniperFileUpload(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    const preview = document.getElementById('sniperFilePreview');
-    const reader = new FileReader();
-    
-    reader.onload = (event) => {
-        const content = event.target.result;
-        const lines = content.split('\n').slice(0, 5);
-        
-        preview.innerHTML = `
-            <h4>✅ File uploaded successfully!</h4>
-            <p><strong>Filename:</strong> ${file.name}</p>
-            <p><strong>Size:</strong> ${file.size.toLocaleString()} bytes</p>
-            <details>
-                <summary>Preview (first 5 lines)</summary>
-                <pre>${lines.join('\n')}</pre>
-            </details>
-        `;
-        preview.classList.remove('hidden');
-    };
-    
-    reader.readAsText(file);
-}
-
-async function handleSniperScanSubmit(e) {
-    e.preventDefault();
-    
-    const targetType = document.querySelector('input[name="sniperTargetType"]:checked')?.value;
-    const domain = document.getElementById('sniperDomainField').value;
-    const config = document.getElementById('sniperConfig').value;
-    
-    // Validate
-    if (targetType === 'domain' && !domain) {
-        showMessage('Please enter a domain', 'error');
-        return;
-    }
-    
-    if (targetType === 'domainList') {
-        const fileInput = document.getElementById('sniperFileInput');
-        if (!fileInput.files[0]) {
-            showMessage('Please upload a domain list', 'error');
-            return;
-        }
-    }
-    
-    // Prepare request
-    const requestData = {
-        targetType,
-        domain: targetType === 'domain' ? domain : null,
-        config: config || null
-    };
-    
-    // Upload file if needed
-    if (targetType === 'domainList') {
-        const fileInput = document.getElementById('sniperFileInput');
-        const fileFormData = new FormData();
-        fileFormData.append('file', fileInput.files[0]);
-        fileFormData.append('config', config || '');
-        
-        try {
-            showMessage('Starting Sn1per scan...', 'info');
-            document.getElementById('sniperScanStatusIndicator').classList.remove('hidden');
-            
-            const response = await apiFetch(`${API_BASE}/sniper/scan/start`, {
-                method: 'POST',
-                body: fileFormData
-            });
-            
-            const data = await response.json();
-            if (data.success) {
-                showMessage('Sn1per scan started successfully!', 'success');
-                switchTab('logs');
-                loadSniperResults();
-            } else {
-                showMessage('Error: ' + (data.error || 'Unknown error'), 'error');
-                document.getElementById('sniperScanStatusIndicator').classList.add('hidden');
-            }
-        } catch (error) {
-            showMessage('Error starting scan: ' + error.message, 'error');
-            document.getElementById('sniperScanStatusIndicator').classList.add('hidden');
-        }
-    } else {
-        try {
-            showMessage('Starting Sn1per scan...', 'info');
-            document.getElementById('sniperScanStatusIndicator').classList.remove('hidden');
-            
-            const response = await apiFetch(`${API_BASE}/sniper/scan/start`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(requestData)
-            });
-            
-            const data = await response.json();
-            if (data.success) {
-                showMessage('Sn1per scan started successfully!', 'success');
-                switchTab('logs');
-                loadSniperResults();
-            } else {
-                showMessage('Error: ' + (data.error || 'Unknown error'), 'error');
-                document.getElementById('sniperScanStatusIndicator').classList.add('hidden');
-            }
-        } catch (error) {
-            showMessage('Error starting scan: ' + error.message, 'error');
-            document.getElementById('sniperScanStatusIndicator').classList.add('hidden');
-        }
-    }
-}
-
-async function loadSniperResults() {
-    try {
-        const response = await apiFetch(`${API_BASE}/sniper/results`);
-        
-        // Check if response is OK
-        if (!response.ok) {
-            const text = await response.text();
-            console.error('Sn1per results API error:', response.status, text);
-            document.getElementById('sniperResultsList').innerHTML = 
-                '<div class="info-box"><p>Error loading results: HTTP ' + response.status + '</p></div>';
-            return;
-        }
-        
-        // Check content type
-        const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-            const text = await response.text();
-            console.error('Sn1per results API returned non-JSON:', contentType, text.substring(0, 200));
-            document.getElementById('sniperResultsList').innerHTML = 
-                '<div class="info-box"><p>Error: Server returned non-JSON response</p></div>';
-            return;
-        }
-        
-        const data = await response.json();
-        
-        const container = document.getElementById('sniperResultsList');
-        if (!container) {
-            console.error('sniperResultsList container not found');
-            return;
-        }
-        
-        if (!data.success) {
-            container.innerHTML = '<div class="info-box"><p>Error: ' + (data.error || 'Unknown error') + '</p></div>';
-            return;
-        }
-        
-        if (!data.results || data.results.length === 0) {
-            container.innerHTML = '<div class="info-box"><p>No Sn1per results yet.</p></div>';
-            return;
-        }
-        
-        container.innerHTML = data.results.map(result => `
-            <div class="target-item">
-                <div class="target-info">
-                    <h3>${result.name}</h3>
-                    <p><strong>Domain:</strong> ${result.domain}</p>
-                    <p><strong>Config:</strong> ${result.config}</p>
-                    <p><strong>Created:</strong> ${new Date(result.created).toLocaleString()}</p>
-                </div>
-                <div class="target-actions">
-                    ${result.has_reports ? '<span class="badge badge-success">Reports</span>' : ''}
-                    ${result.has_output ? '<span class="badge badge-info">Output</span>' : ''}
-                </div>
-            </div>
-        `).join('');
-    } catch (error) {
-        console.error('Error loading Sn1per results:', error);
-        const container = document.getElementById('sniperResultsList');
-        if (container) {
-            container.innerHTML = '<div class="info-box"><p>Error loading results: ' + error.message + '</p></div>';
-        }
-    }
-}
+// Sn1per Functions removed - all Sn1per code has been deleted
 

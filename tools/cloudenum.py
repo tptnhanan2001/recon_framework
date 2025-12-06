@@ -49,7 +49,7 @@ class Cloudenum(BaseTool):
             cmd = ["cloud_enum", "-k", keyword]
             success = self.run_command(cmd, output_file, append=(idx > 1))
             if success:
-                self.notify_message(f"✅ CloudEnum Success {keyword}")
+                self.notify_message(f"Completed CloudEnum scanning")
         
         self.logger.info(f"[Cloudenum] ✓ Results saved to: {output_file}")
         return str(output_file)

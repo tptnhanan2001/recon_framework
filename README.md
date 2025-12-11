@@ -17,7 +17,11 @@ Default UI password: `recontool@` (override with `RECON_UI_PASSWORD`).
 
 ---
 
+## Dashboard
 <img width="1286" height="638" alt="image" src="https://github.com/user-attachments/assets/8cf71480-56b2-45b3-b0d4-23de11afd7ef" />
+
+## Output scan
+<img width="1287" height="636" alt="image" src="https://github.com/user-attachments/assets/025d8e53-ace8-443e-8eaf-ccdf465350dd" />
 
 ## Highlights
 

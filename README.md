@@ -17,6 +17,8 @@ Default UI password: `recontool@` (override with `RECON_UI_PASSWORD`).
 
 ---
 
+<img width="1286" height="638" alt="image" src="https://github.com/user-attachments/assets/8cf71480-56b2-45b3-b0d4-23de11afd7ef" />
+
 ## Highlights
 
 - **Full recon stack**: Subfinder, Amass, Httpx, Dirsearch, Katana, URLFinder, Waybackurls, Waymore, Nuclei, Cloudenum.
